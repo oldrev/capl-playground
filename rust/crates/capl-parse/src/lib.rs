@@ -674,6 +674,22 @@ impl<'d> Parser<'d> {
 mod tests {
     use super::*;
 
+    fn first_expr(source: &str) -> Expr {
+        let mut bag = DiagBag::new();
+        let unit = parse(source, "precedence.can", &mut bag);
+        assert!(!bag.has_errors(), "{:?}", bag.items());
+        let Decl::Handler(handler) = &unit.decls[0] else { panic!("expected handler") };
+        let StmtKind::Block { stmts } = &handler.body.kind else { panic!("expected block") };
+        let StmtKind::Expr { expr } = &stmts[0].kind else { panic!("expected expression") };
+        expr.clone()
+    }
+
+    fn binary<'a>(expr: &'a Expr, op: &str) -> (&'a Expr, &'a Expr) {
+        let ExprKind::Binary { op: actual, left, right } = &expr.kind else { panic!("expected binary") };
+        assert_eq!(actual, op);
+        (left, right)
+    }
+
     #[test]
     fn parses_a_small_program() {
         let mut bag = DiagBag::new();
@@ -688,5 +704,36 @@ mod tests {
         let unit = parse("on start { int x = 1 write(\"hi\"); }", "t.can", &mut bag);
         assert!(bag.has_errors());
         assert_eq!(unit.decls.len(), 1); // the handler still made it into the tree
+    }
+
+    #[test]
+    fn preserves_c_precedence_and_associativity() {
+        let expr = first_expr("on start { result = a + b * c << d < e == f && g || h; }");
+        let ExprKind::Assign { value, .. } = &expr.kind else { panic!("expected assignment") };
+        let (or_left, or_right) = binary(value, "||");
+        assert!(matches!(or_right.kind, ExprKind::Ident { ref name, .. } if name == "h"));
+        let (and_left, and_right) = binary(or_left, "&&");
+        assert!(matches!(and_right.kind, ExprKind::Ident { ref name, .. } if name == "g"));
+        let (eq_left, eq_right) = binary(and_left, "==");
+        assert!(matches!(eq_right.kind, ExprKind::Ident { ref name, .. } if name == "f"));
+        let (lt_left, lt_right) = binary(eq_left, "<");
+        assert!(matches!(lt_right.kind, ExprKind::Ident { ref name, .. } if name == "e"));
+        let (shift_left, shift_right) = binary(lt_left, "<<");
+        assert!(matches!(shift_right.kind, ExprKind::Ident { ref name, .. } if name == "d"));
+        let (add_left, add_right) = binary(shift_left, "+");
+        assert!(matches!(add_left.kind, ExprKind::Ident { ref name, .. } if name == "a"));
+        let (mul_left, mul_right) = binary(add_right, "*");
+        assert!(matches!(mul_left.kind, ExprKind::Ident { ref name, .. } if name == "b"));
+        assert!(matches!(mul_right.kind, ExprKind::Ident { ref name, .. } if name == "c"));
+    }
+
+    #[test]
+    fn conditional_is_right_associative_and_assignment_is_right_associative() {
+        let expr = first_expr("on start { a = b = c ? d : e ? f : g; }");
+        let ExprKind::Assign { value: outer, .. } = &expr.kind else { panic!("expected assignment") };
+        let ExprKind::Assign { target: inner_left, value: inner_right, .. } = &outer.kind else { panic!("expected nested assignment") };
+        assert!(matches!(inner_left.kind, ExprKind::Ident { ref name, .. } if name == "b"));
+        let ExprKind::Cond { otherwise, .. } = &inner_right.kind else { panic!("expected conditional") };
+        assert!(matches!(otherwise.kind, ExprKind::Cond { .. }));
     }
 }

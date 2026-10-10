@@ -148,6 +148,33 @@ supported source declarations. Not implemented: `includes{}`, database signal
 access (`$Signal`), test modules, passing or returning aggregates by value, and
 whole-struct assignment.
 
+## TODO: CAPL language coverage
+
+The compiler intentionally implements a focused CAPL subset. The following
+syntax and language features are reserved for future work and should not be
+treated as supported just because their keywords are recognized by the lexer:
+
+- `includes` with real file/database resolution and include search paths.
+- `enum` declarations, enum scoping, and enum values in all semantic contexts.
+- `struct` declarations, named and anonymous fields, field access, and layout
+  compatible with CAPL.
+- Database-backed objects and signal access such as `$Signal`, including
+  message-qualified signals and signal assignments.
+- CAPL test modules: `testcase`, `testfunction`, test setup/teardown, and test
+  verdict/reporting APIs.
+- Aggregate parameters and return values, including passing arrays or structs
+  by value and whole-struct assignment.
+- Additional CAPL event forms and runtime objects beyond the current timer,
+  message, key, system-variable, environment-variable, and bus/error events.
+- CAPL-specific attributes, qualifiers, namespaces, and configuration syntax
+  used by CANoe/CANalyzer projects.
+- The broader built-in API surface for diagnostics, transport protocols,
+  panels, files, sockets, and measurement configuration.
+
+Each item needs parser, semantic-analysis, backend, and runtime coverage before
+it should be advertised as supported. New syntax should also receive a driver
+integration fixture and focused precedence/diagnostic tests where applicable.
+
 ## UI
 
 * light / dark / **system** theme, remembered in `localStorage`

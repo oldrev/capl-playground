@@ -1,0 +1,26 @@
+variables {
+  long a = 3;
+  long b = 9;
+  long result = 0;
+  int flag = 1;
+}
+
+long choose(long value) {
+  return value < 0 ? -value : value == 0 ? 100 : value;
+}
+
+on start {
+  long x;
+  long y;
+  x = (a + b * 2) << 1;
+  y = flag && a < b || b == 0 ? x : x + 1;
+  result = choose(y > 20 ? y - 20 : -(y - 20));
+  result += (a++, b--, a ^ b);
+  if (!(result == 0) && (a != b || flag)) { result %= 7; }
+  write("result=%d", result);
+}
+
+on key 'x' {
+  flag = flag ? 0 : 1;
+  result = flag ? choose(a) : choose(-b);
+}

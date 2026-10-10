@@ -8,6 +8,10 @@ const PROGRAMS: &[(&str, &str)] = &[
     ("algorithm", include_str!("programs/algorithm.can")),
     ("types", include_str!("programs/types.can")),
     ("state", include_str!("programs/state.can")),
+    ("integration_complex", include_str!("programs/integration_complex.can")),
+    ("expressions", include_str!("programs/expressions.can")),
+    ("bitwise_edges", include_str!("programs/bitwise_edges.can")),
+    ("control_edges", include_str!("programs/control_edges.can")),
 ];
 
 fn build(name: &str, source: &str) -> capl_driver::Output {
@@ -86,6 +90,43 @@ fn state_program_covers_key_handlers_and_timer_cancellation() {
     let wat = out.wasm.unwrap().wat;
     assert!(wat.contains("on_key_103"), "g key handler missing");
     assert!(wat.contains("call 3"), "cancelTimer host call missing");
+}
+
+#[test]
+fn complex_program_covers_a_realistic_node_lifecycle() {
+    let out = build("integration_complex", include_str!("programs/integration_complex.can"));
+    assert!(out.ok, "complex fixture failed: {:?}", out.diagnostics);
+    assert_eq!(handler_count(&out), 7);
+    let sema = out.sema.as_ref().expect("semantic result");
+    assert_eq!(sema.timers.len(), 2);
+    let wat = out.wasm.expect("wasm artifact").wat;
+    assert!(wat.contains("on_message_0x321"));
+    assert!(wat.contains("on_timer_sampleTimer"));
+    assert!(wat.contains("on_timer_watchdog"));
+    assert!(wat.contains("call 2"), "cyclic sampling timer missing");
+    assert!(wat.contains("call 3"), "watchdog timer call missing");
+}
+
+#[test]
+fn expression_fixture_covers_nested_conditionals_and_precedence() {
+    let out = build("expressions", include_str!("programs/expressions.can"));
+    assert!(out.ok, "expression fixture failed: {:?}", out.diagnostics);
+    assert_eq!(handler_count(&out), 2);
+    let wat = out.wasm.expect("wasm artifact").wat;
+    assert!(wat.contains("if"), "conditional expression was not lowered");
+    assert!(wat.contains("i32.xor"), "bitwise xor was not lowered");
+}
+
+#[test]
+fn edge_fixtures_cover_bitwise_updates_and_loop_control() {
+    for (name, source) in [
+        ("bitwise_edges", include_str!("programs/bitwise_edges.can")),
+        ("control_edges", include_str!("programs/control_edges.can")),
+    ] {
+        let out = build(name, source);
+        assert!(out.ok, "{name} failed: {:?}", out.diagnostics);
+        assert!(out.wasm.as_ref().is_some_and(|wasm| wasm.wat.contains("on_start")));
+    }
 }
 
 #[test]

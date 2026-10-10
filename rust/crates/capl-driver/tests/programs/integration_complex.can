@@ -1,0 +1,88 @@
+enum ControlState { INIT, RUNNING = 2, DEGRADED, STOPPED }
+
+variables {
+  message 0x321 statusMessage;
+  msTimer sampleTimer;
+  msTimer watchdog;
+  long samples[8] = { 0, 0, 0, 0, 0, 0, 0, 0 };
+  long sampleCount = 0;
+  long sequence = 0;
+  int state = INIT;
+  word threshold = 750;
+}
+
+long clamp(long value, long low, long high) {
+  if (value < low) return low;
+  if (value > high) return high;
+  return value;
+}
+
+long checksum() {
+  long i;
+  long result = 0;
+  for (i = 0; i < 8; i++) result = result ^ samples[i];
+  return result;
+}
+
+void publishStatus() {
+  statusMessage.dlc = 8;
+  statusMessage.byte(0) = state;
+  statusMessage.byte(1) = sequence & 0xFF;
+  statusMessage.byte(2) = checksum() & 0xFF;
+  output(statusMessage);
+}
+
+on preStart {
+  state = INIT;
+  sampleCount = 0;
+  sequence = 0;
+}
+
+on start {
+  state = RUNNING;
+  setTimerCyclic(sampleTimer, 100);
+  setTimer(watchdog, 1000);
+  publishStatus();
+}
+
+on timer sampleTimer {
+  long slot;
+  long value;
+  slot = sampleCount % 8;
+  value = clamp((timeNow() + sequence * 17) % 1200, 0, 1000);
+  samples[slot] = value;
+  sampleCount++;
+  sequence++;
+  if (value > threshold) state = DEGRADED;
+  else if (state == DEGRADED) state = RUNNING;
+  publishStatus();
+}
+
+on timer watchdog {
+  if (sampleCount < 2) state = STOPPED;
+  else setTimer(watchdog, 1000);
+}
+
+on message 0x321 {
+  word command;
+  command = (this.byte(0) << 8) | this.byte(1);
+  switch (command) {
+    case 1: state = RUNNING; break;
+    case 2: state = STOPPED; cancelTimer(sampleTimer); break;
+    default: state = DEGRADED; break;
+  }
+  publishStatus();
+}
+
+on key 'r' {
+  sampleCount = 0;
+  sequence = 0;
+  state = RUNNING;
+  setTimerCyclic(sampleTimer, 100);
+}
+
+on key 's' {
+  state = STOPPED;
+  cancelTimer(sampleTimer);
+  cancelTimer(watchdog);
+}
