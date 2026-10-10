@@ -29,6 +29,7 @@ capl-driver = { path = "crates/capl-driver", version = "0.4.0" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 wasmi = "0.31"
+wasm-encoder = "0.261"
 
 [profile.release]
 opt-level = "z"

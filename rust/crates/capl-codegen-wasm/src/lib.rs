@@ -1,8 +1,8 @@
 //! `capl-codegen-wasm` — turns the decorated AST into a WebAssembly 1.0 module.
 //!
-//! No external crate is used for the binary format: everything the backend
-//! needs is 200 lines of LEB128 plus a section writer, which keeps the
-//! dependency graph of an embedded compiler empty.
+//! The module container is encoded with `wasm-encoder`. The lowering layer
+//! keeps a byte-level instruction trace so it can continue to produce the
+//! playground's readable WAT listing while the encoder owns module framing.
 //!
 //! Memory image
 //! ```text
@@ -19,6 +19,8 @@ use capl_ast::*;
 use capl_diag::DiagBag;
 use capl_sema::{usual_conversion, SemaResult};
 use std::collections::HashMap;
+use wasm_encoder as we;
+use wasm_encoder::Encode;
 
 pub const I32: u8 = 0x7f;
 pub const I64: u8 = 0x7e;
@@ -44,48 +46,6 @@ pub const IMPORTS: &[(&str, &[u8], Option<u8>)] = &[
     ("canOffline", &[], None),
     ("stopMeasurement", &[], None),
 ];
-
-/* ── LEB128 ─────────────────────────────────────────────── */
-
-pub fn uleb(v: u32, out: &mut Vec<u8>) {
-    let mut x = v;
-    loop {
-        let mut b = (x & 0x7f) as u8;
-        x >>= 7;
-        if x != 0 {
-            b |= 0x80;
-        }
-        out.push(b);
-        if x == 0 {
-            break;
-        }
-    }
-}
-
-pub fn sleb(v: i64, out: &mut Vec<u8>) {
-    let mut v = v;
-    loop {
-        let b = (v & 0x7f) as u8;
-        let sign = b & 0x40 != 0;
-        v >>= 7;
-        if (v == 0 && !sign) || (v == -1 && sign) {
-            out.push(b);
-            return;
-        }
-        out.push(b | 0x80);
-    }
-}
-
-fn name(s: &str, out: &mut Vec<u8>) {
-    uleb(s.len() as u32, out);
-    out.extend_from_slice(s.as_bytes());
-}
-
-fn section(id: u8, payload: &[u8], out: &mut Vec<u8>) {
-    out.push(id);
-    uleb(payload.len() as u32, out);
-    out.extend_from_slice(payload);
-}
 
 /* ── function body builder ──────────────────────────────── */
 
@@ -117,50 +77,73 @@ impl Code {
         self.wat.push(line);
     }
 
-    pub fn op(&mut self, code: u8, text: &str) {
-        self.bytes.push(code);
+    fn instruction(&mut self, instruction: we::Instruction<'static>, text: &str) {
+        instruction.encode(&mut self.bytes);
         self.w(text);
     }
 
+    pub fn op(&mut self, code: u8, text: &str) {
+        self.instruction(instruction_for_opcode(code), text);
+    }
+
     pub fn op_u(&mut self, code: u8, imm: u32, text: &str) {
-        self.bytes.push(code);
-        uleb(imm, &mut self.bytes);
+        let instruction = match code {
+            0x0c => we::Instruction::Br(imm),
+            0x0d => we::Instruction::BrIf(imm),
+            0x10 => we::Instruction::Call(imm),
+            0x20 => we::Instruction::LocalGet(imm),
+            0x21 => we::Instruction::LocalSet(imm),
+            0x22 => we::Instruction::LocalTee(imm),
+            0x23 => we::Instruction::GlobalGet(imm),
+            0x24 => we::Instruction::GlobalSet(imm),
+            _ => panic!("unsupported wasm immediate opcode 0x{code:02x}"),
+        };
+        instruction.encode(&mut self.bytes);
         self.w(format!("{text} {imm}"));
     }
 
     pub fn mem(&mut self, code: u8, align: u32, offset: u32, text: &str) {
-        self.bytes.push(code);
-        uleb(align, &mut self.bytes);
-        uleb(offset, &mut self.bytes);
+        let arg = we::MemArg { offset: offset as u64, align, memory_index: 0 };
+        let instruction = match code {
+            0x28 => we::Instruction::I32Load(arg),
+            0x29 => we::Instruction::I64Load(arg),
+            0x2b => we::Instruction::F64Load(arg),
+            0x2d => we::Instruction::I32Load8U(arg),
+            0x2f => we::Instruction::I32Load16S(arg),
+            0x36 => we::Instruction::I32Store(arg),
+            0x37 => we::Instruction::I64Store(arg),
+            0x39 => we::Instruction::F64Store(arg),
+            0x3a => we::Instruction::I32Store8(arg),
+            0x3b => we::Instruction::I32Store16(arg),
+            _ => panic!("unsupported wasm memory opcode 0x{code:02x}"),
+        };
+        instruction.encode(&mut self.bytes);
         self.w(if offset == 0 { text.to_string() } else { format!("{text} offset={offset}") });
     }
 
     pub fn i32c(&mut self, v: i32) {
-        self.bytes.push(0x41);
-        sleb(v as i64, &mut self.bytes);
+        we::Instruction::I32Const(v).encode(&mut self.bytes);
         self.w(format!("i32.const {v}"));
     }
 
     pub fn i64c(&mut self, v: i64) {
-        self.bytes.push(0x42);
-        sleb(v, &mut self.bytes);
+        we::Instruction::I64Const(v).encode(&mut self.bytes);
         self.w(format!("i64.const {v}"));
     }
 
     pub fn f64c(&mut self, v: f64) {
-        self.bytes.push(0x44);
-        self.bytes.extend_from_slice(&v.to_le_bytes());
+        we::Instruction::F64Const(v.into()).encode(&mut self.bytes);
         self.w(format!("f64.const {v}"));
     }
 
     pub fn block_start(&mut self, kind: &str, label: &str, result: Option<u8>) {
-        let code = match kind {
-            "block" => 0x02,
-            "loop" => 0x03,
-            _ => 0x04,
+        let block_type = result.map(encoder_valtype).map(we::BlockType::Result).unwrap_or(we::BlockType::Empty);
+        let instruction = match kind {
+            "block" => we::Instruction::Block(block_type),
+            "loop" => we::Instruction::Loop(block_type),
+            _ => we::Instruction::If(block_type),
         };
-        self.bytes.push(code);
-        self.bytes.push(result.unwrap_or(0x40));
+        instruction.encode(&mut self.bytes);
         self.w(format!("({kind} ${label}"));
         self.labels.push(label.to_string());
         self.indent += 1;
@@ -168,7 +151,7 @@ impl Code {
 
     pub fn else_op(&mut self) {
         self.indent -= 1;
-        self.bytes.push(0x05);
+        we::Instruction::Else.encode(&mut self.bytes);
         self.w("(else)");
         self.indent += 1;
     }
@@ -176,7 +159,7 @@ impl Code {
     pub fn end(&mut self) {
         self.labels.pop();
         self.indent -= 1;
-        self.bytes.push(0x0b);
+        we::Instruction::End.encode(&mut self.bytes);
         self.w(")");
     }
 
@@ -214,6 +197,72 @@ impl Code {
     }
     pub fn set_global(&mut self, i: u32) {
         self.op_u(0x24, i, "global.set");
+    }
+}
+
+fn instruction_for_opcode(code: u8) -> we::Instruction<'static> {
+    match code {
+        0x0f => we::Instruction::Return,
+        0x1a => we::Instruction::Drop,
+        0x45 => we::Instruction::I32Eqz,
+        0x46 => we::Instruction::I32Eq,
+        0x47 => we::Instruction::I32Ne,
+        0x48 => we::Instruction::I32LtS,
+        0x4a => we::Instruction::I32GtS,
+        0x4c => we::Instruction::I32LeS,
+        0x4e => we::Instruction::I32GeS,
+        0x51 => we::Instruction::I64Eq,
+        0x52 => we::Instruction::I64Ne,
+        0x53 => we::Instruction::I64LtS,
+        0x55 => we::Instruction::I64GtS,
+        0x57 => we::Instruction::I64LeS,
+        0x59 => we::Instruction::I64GeS,
+        0x61 => we::Instruction::F64Eq,
+        0x62 => we::Instruction::F64Ne,
+        0x63 => we::Instruction::F64Lt,
+        0x64 => we::Instruction::F64Gt,
+        0x65 => we::Instruction::F64Le,
+        0x66 => we::Instruction::F64Ge,
+        0x6a => we::Instruction::I32Add,
+        0x6b => we::Instruction::I32Sub,
+        0x6c => we::Instruction::I32Mul,
+        0x6d => we::Instruction::I32DivS,
+        0x6f => we::Instruction::I32RemS,
+        0x71 => we::Instruction::I32And,
+        0x72 => we::Instruction::I32Or,
+        0x73 => we::Instruction::I32Xor,
+        0x74 => we::Instruction::I32Shl,
+        0x75 => we::Instruction::I32ShrS,
+        0x76 => we::Instruction::I32ShrU,
+        0x7c => we::Instruction::I64Add,
+        0x7d => we::Instruction::I64Sub,
+        0x7e => we::Instruction::I64Mul,
+        0x7f => we::Instruction::I64DivS,
+        0x81 => we::Instruction::I64RemS,
+        0x83 => we::Instruction::I64And,
+        0x84 => we::Instruction::I64Or,
+        0x85 => we::Instruction::I64Xor,
+        0x86 => we::Instruction::I64Shl,
+        0x87 => we::Instruction::I64ShrS,
+        0x88 => we::Instruction::I64ShrU,
+        0x9a => we::Instruction::F64Neg,
+        0x9b => we::Instruction::F64Ceil,
+        0x9c => we::Instruction::F64Floor,
+        0x9f => we::Instruction::F64Sqrt,
+        0xa0 => we::Instruction::F64Add,
+        0xa1 => we::Instruction::F64Sub,
+        0xa2 => we::Instruction::F64Mul,
+        0xa3 => we::Instruction::F64Div,
+        0xa7 => we::Instruction::I32WrapI64,
+        0xaa => we::Instruction::I32TruncF64S,
+        0xac => we::Instruction::I64ExtendI32S,
+        0xad => we::Instruction::I64ExtendI32U,
+        0xb0 => we::Instruction::I64TruncF64S,
+        0xb7 => we::Instruction::F64ConvertI32S,
+        0xb8 => we::Instruction::F64ConvertI32U,
+        0xb9 => we::Instruction::F64ConvertI64S,
+        0xba => we::Instruction::F64ConvertI64U,
+        _ => panic!("unsupported wasm opcode 0x{code:02x}"),
     }
 }
 
@@ -905,129 +954,86 @@ impl<'s> WasmBackend<'s> {
     }
 
     fn assemble(&self) -> Vec<u8> {
-        let mut out = vec![0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00];
-
-        // type section — deduplicated signatures
-        let mut types: Vec<(Vec<u8>, Option<u8>)> = Vec::new();
-        let type_of = |params: Vec<u8>, ret: Option<u8>, types: &mut Vec<(Vec<u8>, Option<u8>)>| -> u32 {
-            if let Some(i) = types.iter().position(|t| t.0 == params && t.1 == ret) {
-                return i as u32;
+        // Keep the same deduplicated type-index assignment as the previous
+        // encoder. Function indices remain imports first, then definitions.
+        let mut type_keys: Vec<(Vec<u8>, Option<u8>)> = Vec::new();
+        let mut types = we::TypeSection::new();
+        let mut type_of = |params: &[u8], ret: Option<u8>| -> u32 {
+            if let Some(index) = type_keys.iter().position(|key| key.0 == params && key.1 == ret) {
+                return index as u32;
             }
-            types.push((params, ret));
-            (types.len() - 1) as u32
+            let index = type_keys.len() as u32;
+            type_keys.push((params.to_vec(), ret));
+            let encoded_params: Vec<_> = params.iter().copied().map(encoder_valtype).collect();
+            let encoded_results: Vec<_> = ret.into_iter().map(encoder_valtype).collect();
+            types.ty().function(encoded_params, encoded_results);
+            index
         };
-        let import_types: Vec<u32> = IMPORTS
-            .iter()
-            .map(|(_, p, r)| type_of(p.to_vec(), *r, &mut types))
-            .collect();
-        let func_types: Vec<u32> = self
-            .codes
-            .iter()
-            .map(|c| type_of(c.params.clone(), c.ret, &mut types))
-            .collect();
 
-        let mut sec = Vec::new();
-        uleb(types.len() as u32, &mut sec);
-        for (params, ret) in &types {
-            sec.push(0x60);
-            uleb(params.len() as u32, &mut sec);
-            sec.extend_from_slice(params);
-            match ret {
-                Some(r) => {
-                    uleb(1, &mut sec);
-                    sec.push(*r);
-                }
-                None => uleb(0, &mut sec),
-            }
+        let import_types: Vec<u32> = IMPORTS.iter().map(|(_, params, ret)| type_of(params, *ret)).collect();
+        let function_types: Vec<u32> = self.codes.iter().map(|code| type_of(&code.params, code.ret)).collect();
+
+        let mut imports = we::ImportSection::new();
+        for (index, (field, _, _)) in IMPORTS.iter().enumerate() {
+            imports.import("capl", field, we::EntityType::Function(import_types[index]));
         }
-        section(1, &sec, &mut out);
 
-        sec = Vec::new();
-        uleb(IMPORTS.len() as u32, &mut sec);
-        for (i, (field, _, _)) in IMPORTS.iter().enumerate() {
-            name("capl", &mut sec);
-            name(field, &mut sec);
-            sec.push(0x00);
-            uleb(import_types[i], &mut sec);
+        let mut functions = we::FunctionSection::new();
+        for type_index in &function_types {
+            functions.function(*type_index);
         }
-        section(2, &sec, &mut out);
 
-        sec = Vec::new();
-        uleb(func_types.len() as u32, &mut sec);
-        for t in &func_types {
-            uleb(*t, &mut sec);
+        let mut memories = we::MemorySection::new();
+        memories.memory(we::MemoryType {
+            minimum: self.pages() as u64,
+            maximum: Some(self.pages().max(64) as u64),
+            memory64: false,
+            shared: false,
+            page_size_log2: None,
+        });
+
+        let mut globals = we::GlobalSection::new();
+        for (mutable, init) in [(true, 0), (true, 0), (false, self.msgbuf as i32)] {
+            globals.global(
+                we::GlobalType { val_type: we::ValType::I32, mutable, shared: false },
+                &we::ConstExpr::i32_const(init),
+            );
         }
-        section(3, &sec, &mut out);
 
-        sec = vec![0x01, 0x01];
-        uleb(self.pages(), &mut sec);
-        uleb(self.pages().max(64), &mut sec);
-        section(5, &sec, &mut out);
-
-        // globals: __this, __fuel (mutable) and __msgbuf (const)
-        sec = Vec::new();
-        uleb(3, &mut sec);
-        for (mutable, init) in [(1u8, 0i64), (1, 0), (0, self.msgbuf as i64)] {
-            sec.push(I32);
-            sec.push(mutable);
-            sec.push(0x41);
-            sleb(init, &mut sec);
-            sec.push(0x0b);
+        let mut exports = we::ExportSection::new();
+        exports.export("memory", we::ExportKind::Memory, 0);
+        exports.export("__msgbuf", we::ExportKind::Global, 2);
+        for (index, code) in self.codes.iter().enumerate() {
+            exports.export(&code.name, we::ExportKind::Func, IMPORTS.len() as u32 + index as u32);
         }
-        section(6, &sec, &mut out);
 
-        sec = Vec::new();
-        uleb(self.codes.len() as u32 + 2, &mut sec);
-        name("memory", &mut sec);
-        sec.push(0x02);
-        uleb(0, &mut sec);
-        name("__msgbuf", &mut sec);
-        sec.push(0x03);
-        uleb(2, &mut sec);
-        for (i, c) in self.codes.iter().enumerate() {
-            name(&c.name, &mut sec);
-            sec.push(0x00);
-            uleb(IMPORTS.len() as u32 + i as u32, &mut sec);
+        let mut code_section = we::CodeSection::new();
+        for code in &self.codes {
+            let locals = code.locals.iter().copied().map(encoder_valtype);
+            let mut function = we::Function::new_with_locals_types(locals);
+            function.raw(code.bytes.iter().copied());
+            function.raw([0x0b]);
+            code_section.function(&function);
         }
-        section(7, &sec, &mut out);
 
-        sec = Vec::new();
-        uleb(self.codes.len() as u32, &mut sec);
-        for c in &self.codes {
-            let mut body = Vec::new();
-            let mut runs: Vec<(u32, u8)> = Vec::new();
-            for t in &c.locals {
-                match runs.last_mut() {
-                    Some(r) if r.1 == *t => r.0 += 1,
-                    _ => runs.push((1, *t)),
-                }
-            }
-            uleb(runs.len() as u32, &mut body);
-            for (n, t) in runs {
-                uleb(n, &mut body);
-                body.push(t);
-            }
-            body.extend_from_slice(&c.bytes);
-            body.push(0x0b);
-            uleb(body.len() as u32, &mut sec);
-            sec.extend_from_slice(&body);
+        let mut data = we::DataSection::new();
+        for (address, bytes) in &self.data {
+            data.active(0, &we::ConstExpr::i32_const(*address as i32), bytes.iter().copied());
         }
-        section(10, &sec, &mut out);
 
+        let mut module = we::Module::new();
+        module
+            .section(&types)
+            .section(&imports)
+            .section(&functions)
+            .section(&memories)
+            .section(&globals)
+            .section(&exports)
+            .section(&code_section);
         if !self.data.is_empty() {
-            sec = Vec::new();
-            uleb(self.data.len() as u32, &mut sec);
-            for (addr, bytes) in &self.data {
-                sec.push(0x00);
-                sec.push(0x41);
-                sleb(*addr as i64, &mut sec);
-                sec.push(0x0b);
-                uleb(bytes.len() as u32, &mut sec);
-                sec.extend_from_slice(bytes);
-            }
-            section(11, &sec, &mut out);
+            module.section(&data);
         }
-        out
+        module.finish()
     }
 
     fn wat(&self) -> String {
@@ -1059,18 +1065,24 @@ pub fn vt_name(v: u8) -> &'static str {
     }
 }
 
+fn encoder_valtype(v: u8) -> we::ValType {
+    match v {
+        I64 => we::ValType::I64,
+        F64 => we::ValType::F64,
+        _ => we::ValType::I32,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn leb128_roundtrip() {
-        let mut v = Vec::new();
-        uleb(624485, &mut v);
-        assert_eq!(v, vec![0xe5, 0x8e, 0x26]);
-        v.clear();
-        sleb(-123456, &mut v);
-        assert_eq!(v, vec![0xc0, 0xbb, 0x78]);
+    fn encoder_instruction_bytes_match_wasm() {
+        let mut code = Code::new("test", vec![], None);
+        code.i32c(-123456);
+        code.op(0x6a, "i32.add");
+        assert_eq!(code.bytes, vec![0x41, 0xc0, 0xbb, 0x78, 0x6a]);
     }
 
     #[test]

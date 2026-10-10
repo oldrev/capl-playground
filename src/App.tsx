@@ -206,8 +206,8 @@ export default function App() {
   return (
     <div className="flex h-screen min-h-0 flex-col">
       {/* ── header ─────────────────────────────────── */}
-      <header className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-line bg-panel/80 px-4 py-2.5 backdrop-blur">
-        <div className="flex items-center gap-3">
+      <header className="grid grid-cols-1 gap-2 border-b border-line bg-panel/80 px-4 py-2.5 backdrop-blur lg:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] lg:items-center">
+        <div className="flex min-w-0 items-center gap-3">
           <div className="relative flex h-9 w-9 items-center justify-center rounded-xl hl-stripe shadow-sm">
             <span className="font-mono text-[13px] font-black text-white drop-shadow">C</span>
             <span className="absolute -bottom-1 -right-1 rounded-md border border-line bg-panel px-1 font-mono text-[8px] font-bold text-ember">
@@ -218,19 +218,18 @@ export default function App() {
             <h1 className="text-[15px] font-bold tracking-tight text-ink">{t("title")}</h1>
             <p className="text-[11px] text-muted">{t("tagline")}</p>
           </div>
+          <div className="hidden items-center gap-1.5 xl:flex">
+            <span className="chip" title="compiler core">
+              <Icon.chip className="h-3 w-3" />
+              {t("coreRust")} v{core.version}
+            </span>
+            <span className="chip" style={{ color: statusColor, borderColor: statusColor }}>
+              ● {t(status as "statusReady")}
+            </span>
+          </div>
         </div>
 
-        <div className="hidden items-center gap-1.5 xl:flex">
-          <span className="chip" title="compiler core">
-            <Icon.chip className="h-3 w-3" />
-            {t("coreRust")} v{core.version}
-          </span>
-          <span className="chip" style={{ color: statusColor, borderColor: statusColor }}>
-            ● {t(status as "statusReady")}
-          </span>
-        </div>
-
-        <div className="ml-auto flex flex-wrap items-center gap-1.5">
+        <div className="flex flex-wrap items-center justify-center gap-1.5 lg:col-start-2 lg:row-start-1">
           <select
             className="inp cursor-pointer pr-6"
             value=""
@@ -249,6 +248,18 @@ export default function App() {
               </option>
             ))}
           </select>
+
+          <button className="btn" onClick={() => setResult(core.compile(src))}>
+            <Icon.hammer className="h-3.5 w-3.5" />
+            {t("compile")}
+          </button>
+          <button className="btn btn-primary" onClick={() => void run()}>
+            <Icon.play className="h-3.5 w-3.5" />
+            {t("run")}
+          </button>
+        </div>
+
+        <div className="flex flex-wrap items-center justify-center gap-1.5 lg:col-start-3 lg:row-start-1 lg:justify-end">
 
           <div className="flex overflow-hidden rounded-lg border border-line">
             {(["light", "dark", "system"] as Theme[]).map((th) => (
@@ -283,14 +294,6 @@ export default function App() {
             ))}
           </div>
 
-          <button className="btn" onClick={() => setResult(core.compile(src))}>
-            <Icon.hammer className="h-3.5 w-3.5" />
-            {t("compile")}
-          </button>
-          <button className="btn btn-primary" onClick={() => void run()}>
-            <Icon.play className="h-3.5 w-3.5" />
-            {t("run")}
-          </button>
         </div>
       </header>
 

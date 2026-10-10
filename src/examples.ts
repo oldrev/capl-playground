@@ -232,6 +232,66 @@ on start
 `,
   },
   {
+    id: "md5",
+    title: { en: "MD5 hash (CAPL implementation)", zh: "MD5 哈希（CAPL 实现）" },
+    code: `/* ── MD5 for the single-block message "abc" ─────────
+   A complete message-digest implementation using arrays,
+   functions, loops, conditionals and bitwise operations. */
+
+variables
+{
+  dword state[4];
+  dword block[16] = { 0x80636261, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 24, 0 };
+  dword result[4];
+  dword constants[64] = {
+    0xD76AA478, 0xE8C7B756, 0x242070DB, 0xC1BDCEEE, 0xF57C0FAF, 0x4787C62A, 0xA8304613, 0xFD469501,
+    0x698098D8, 0x8B44F7AF, 0xFFFF5BB1, 0x895CD7BE, 0x6B901122, 0xFD987193, 0xA679438E, 0x49B40821,
+    0xF61E2562, 0xC040B340, 0x265E5A51, 0xE9B6C7AA, 0xD62F105D, 0x02441453, 0xD8A1E681, 0xE7D3FBC8,
+    0x21E1CDE6, 0xC33707D6, 0xF4D50D87, 0x455A14ED, 0xA9E3E905, 0xFCEFA3F8, 0x676F02D9, 0x8D2A4C8A,
+    0xFFFA3942, 0x8771F681, 0x6D9D6122, 0xFDE5380C, 0xA4BEEA44, 0x4BDECFA9, 0xF6BB4B60, 0xBEBFBC70,
+    0x289B7EC6, 0xEAA127FA, 0xD4EF3085, 0x04881D05, 0xD9D4D039, 0xE6DB99E5, 0x1FA27CF8, 0xC4AC5665,
+    0xF4292244, 0x432AFF97, 0xAB9423A7, 0xFC93A039, 0x655B59C3, 0x8F0CCC92, 0xFFEFF47D, 0x85845DD1,
+    0x6FA87E4F, 0xFE2CE6E0, 0xA3014314, 0x4E0811A1, 0xF7537E82, 0xBD3AF235, 0x2AD7D2BB, 0xEB86D391
+  };
+  long shifts[64] = { 7,12,17,22,7,12,17,22,7,12,17,22,7,12,17,22, 5,9,14,20,5,9,14,20,5,9,14,20,5,9,14,20, 4,11,16,23,4,11,16,23,4,11,16,23,4,11,16,23, 6,10,15,21,6,10,15,21,6,10,15,21,6,10,15,21 };
+}
+
+dword rol(dword value, dword amount)
+{
+  return (value << amount) | (value >> (32 - amount));
+}
+
+int calculateMd5()
+{
+  long n, index, shift;
+  dword a, b, c, d, temp, mix;
+  state[0] = 0x67452301; state[1] = 0xEFCDAB89;
+  state[2] = 0x98BADCFE; state[3] = 0x10325476;
+  a = state[0]; b = state[1]; c = state[2]; d = state[3];
+  for (n = 0; n < 64; n++) {
+    if (n < 16) { mix = (b & c) | ((~b) & d); index = n; }
+    else if (n < 32) { mix = (b & d) | (c & (~d)); index = (5 * n + 1) % 16; }
+    else if (n < 48) { mix = b ^ c ^ d; index = (3 * n + 5) % 16; }
+    else { mix = c ^ (b | (~d)); index = (7 * n) % 16; }
+    temp = d; d = c; c = b; shift = shifts[n];
+    b = b + rol(a + mix + block[index] + constants[n], shift); a = temp;
+  }
+  result[0] = state[0] + a; result[1] = state[1] + b;
+  result[2] = state[2] + c; result[3] = state[3] + d;
+  return (result[0] == 0x98500190 && result[1] == 0xB04FD23C && result[2] == 0x7D3F96D6 && result[3] == 0x727FE128);
+}
+
+on start
+{
+  int match;
+  match = calculateMd5();
+  write("MD5(\\\"abc\\\") calculated words: %x%x%x%x", result[0], result[1], result[2], result[3]);
+  write("MD5(\\\"abc\\\") expected:         900150983cd24fb0d6963f7d28e17f72");
+  if (match) write("MD5 check: MATCH"); else write("MD5 check: MISMATCH");
+}
+`,
+  },
+  {
     id: "types",
     title: { en: "Enums, structs, matrices", zh: "枚举、结构与多维数组" },
     code: `/* ── enum, struct and multi-dimensional arrays ───────

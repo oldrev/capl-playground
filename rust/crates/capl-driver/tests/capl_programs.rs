@@ -46,6 +46,8 @@ fn real_capl_programs_compile_through_every_backend() {
         let wasm = out.wasm.as_ref().unwrap_or_else(|| panic!("{name} did not produce wasm"));
         assert_eq!(&wasm.bytes[..4], b"\0asm", "{name} has an invalid wasm header");
         assert!(!wasm.wat.is_empty(), "{name} did not produce a WAT listing");
+        Module::new(&Engine::default(), &mut &wasm.bytes[..])
+            .unwrap_or_else(|error| panic!("{name} produced invalid wasm: {error}"));
     }
 }
 
