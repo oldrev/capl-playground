@@ -1,0 +1,11 @@
+[package]
+name = "capl-codegen-wasm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "WebAssembly backend for the CAPL compiler: emits a complete wasm module"
+
+[dependencies]
+capl-diag.workspace = true
+capl-ast.workspace = true
+capl-sema.workspace = true

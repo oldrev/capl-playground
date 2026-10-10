@@ -1,0 +1,28 @@
+[package]
+name = "capl-driver"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Pipeline orchestration, Backend trait and the `capl` command line driver"
+
+[lib]
+name = "capl_driver"
+path = "src/lib.rs"
+
+[[bin]]
+name = "capl"
+path = "src/main.rs"
+
+[dependencies]
+capl-diag.workspace = true
+capl-lexer.workspace = true
+capl-ast.workspace = true
+capl-parse.workspace = true
+capl-sema.workspace = true
+capl-codegen-wasm = { workspace = true, optional = true }
+capl-codegen-c = { workspace = true, optional = true }
+
+[features]
+default = ["wasm-backend", "c-backend"]
+wasm-backend = ["dep:capl-codegen-wasm"]
+c-backend = ["dep:capl-codegen-c"]

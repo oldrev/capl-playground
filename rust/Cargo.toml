@@ -1,0 +1,39 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/capl-diag",
+    "crates/capl-lexer",
+    "crates/capl-ast",
+    "crates/capl-parse",
+    "crates/capl-sema",
+    "crates/capl-codegen-wasm",
+    "crates/capl-codegen-c",
+    "crates/capl-driver",
+    "crates/capl-wasm",
+]
+
+[workspace.package]
+version = "0.4.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://example.invalid/capl-playground"
+description = "A modular compiler for Vector CAPL"
+
+[workspace.dependencies]
+capl-diag = { path = "crates/capl-diag", version = "0.4.0" }
+capl-lexer = { path = "crates/capl-lexer", version = "0.4.0" }
+capl-ast = { path = "crates/capl-ast", version = "0.4.0" }
+capl-parse = { path = "crates/capl-parse", version = "0.4.0" }
+capl-sema = { path = "crates/capl-sema", version = "0.4.0" }
+capl-codegen-wasm = { path = "crates/capl-codegen-wasm", version = "0.4.0" }
+capl-codegen-c = { path = "crates/capl-codegen-c", version = "0.4.0" }
+capl-driver = { path = "crates/capl-driver", version = "0.4.0" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

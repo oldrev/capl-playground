@@ -1,0 +1,10 @@
+[package]
+name = "capl-sema"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Scopes, symbols and type checking for the CAPL compiler"
+
+[dependencies]
+capl-diag.workspace = true
+capl-ast.workspace = true

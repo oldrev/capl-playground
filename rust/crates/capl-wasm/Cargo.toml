@@ -1,0 +1,23 @@
+[package]
+name = "capl-wasm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "wasm-bindgen facade: run the CAPL compiler itself inside the browser"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+capl-driver.workspace = true
+capl-diag.workspace = true
+wasm-bindgen = "0.2"
+js-sys = "0.3"
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde-wasm-bindgen = "0.6"
+console_error_panic_hook = { version = "0.1", optional = true }
+
+[features]
+default = ["panic-hook"]
+panic-hook = ["dep:console_error_panic_hook"]

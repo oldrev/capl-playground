@@ -1,0 +1,15 @@
+[package]
+name = "capl-ast"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "AST, type lattice and JSON export for the CAPL compiler"
+
+[dependencies]
+capl-diag.workspace = true
+serde = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
+
+[features]
+default = ["json"]
+json = ["dep:serde", "dep:serde_json"]

@@ -1,0 +1,13 @@
+[package]
+name = "capl-diag"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Source locations and diagnostics for the CAPL compiler"
+
+[dependencies]
+serde = { workspace = true, optional = true }
+
+[features]
+default = ["serde"]
+serde = ["dep:serde"]
