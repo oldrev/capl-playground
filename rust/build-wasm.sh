@@ -16,7 +16,7 @@ echo "▸ cargo test (all crates, native)"
 cargo test --workspace --quiet
 
 echo "▸ cargo clippy"
-cargo clippy --workspace --all-targets -- -D warnings || true
+cargo clippy --workspace --all-targets -- -D warnings
 
 echo "▸ wasm-pack build capl-wasm"
 wasm-pack build crates/capl-wasm \

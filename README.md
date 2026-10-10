@@ -1,5 +1,10 @@
 # CAPL Playground
 
+[![Deploy to GitHub Pages](https://github.com/oldrev/capl-playground/actions/workflows/deploy-pages.yml/badge.svg)](https://github.com/oldrev/capl-playground/actions/workflows/deploy-pages.yml)
+[![Rust tests](https://img.shields.io/badge/tests-cargo%20test%20--workspace-orange?logo=rust)](https://github.com/oldrev/capl-playground/actions)
+[![Coverage](https://img.shields.io/badge/coverage-LCOV-informational)](https://github.com/oldrev/capl-playground/actions)
+[![License](https://img.shields.io/badge/license-see%20repository-blue)](https://github.com/oldrev/capl-playground)
+
 An online playground for **Vector CAPL** (the CANoe/CANalyzer node language).
 Write CAPL in the browser, watch it go through a real compiler pipeline, inspect
 the AST as JSON, read the generated C, read the generated WebAssembly — and then
@@ -7,6 +12,8 @@ the AST as JSON, read the generated C, read the generated WebAssembly — and th
 time, timers, a CAN bus and key events.
 
 Nothing is sent to a server: the compiler runs in the page.
+
+![CAPL Playground interface](docs/capl-playground.png)
 
 ```
 source.can ─▶ lexer ─▶ parser ─▶ AST ─▶ sema ─┬─▶ wasm backend ─▶ .wasm ─▶ simulator

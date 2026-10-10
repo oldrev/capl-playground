@@ -315,7 +315,7 @@ impl<'s> WasmBackend<'s> {
                 continue; // timers are host-side handles
             }
             let size = v.ty.size_of();
-            let addr = self.alloc(size, size.min(8).max(1));
+            let addr = self.alloc(size, size.clamp(1, 8));
             self.global_addr.insert(id, addr);
             if let Some(Expr { kind: ExprKind::StrLit { value }, .. }) = unit.decls.iter().find_map(|d| match d {
                 Decl::Var(vd) if vd.sym == Some(id) => vd.init.as_ref(),
@@ -420,7 +420,7 @@ impl<'s> WasmBackend<'s> {
                 let Some(v) = self.sema.var(*id) else { continue };
                 if matches!(v.ty.kind, TyKind::Timer | TyKind::MsTimer) { continue; }
                 if v.ty.kind == TyKind::Array || v.ty.kind == TyKind::Message {
-                    let addr = self.alloc(v.ty.size_of(), v.ty.size_of().min(8).max(1));
+                    let addr = self.alloc(v.ty.size_of(), v.ty.size_of().clamp(1, 8));
                     self.static_addr.insert(*id, addr);
                     self.layout.push(LayoutEntry { name: format!("{owner}::{}", v.name), addr: addr as i64, size: v.ty.size_of(), ty: format!("{:?}", v.ty.kind) });
                 } else {
@@ -646,7 +646,7 @@ impl<'s> WasmBackend<'s> {
                     self.lower_value_as(code, value, &ty); let tmp = code.local(vt(&ty)); code.set_local(tmp);
                     let index = args.first().and_then(|a| if let ExprKind::IntLit { value } = a.kind { Some(value as u32) } else { None }).unwrap_or(0);
                     if matches!(base.kind, ExprKind::This) { code.get_global(0); code.i32c((8 + index * width) as i32); code.op(0x6a, "i32.add"); }
-                    else if let Some((addr, _)) = self.member_addr(code, base, "id") { code.i32c((addr - 0 + 8 + index * width) as i32); } else { return; }
+                    else if let Some((addr, _)) = self.member_addr(code, base, "id") { code.i32c((addr + 8 + index * width) as i32); } else { return; }
                     code.get_local(tmp); self.store_mem(code, &ty); code.get_local(tmp); return;
                 }
             }
@@ -778,7 +778,20 @@ impl<'s> WasmBackend<'s> {
             "timeNow" => { code.call(5); }
             "random" => { if let Some(a) = args.first() { self.lower_value_as(code, a, &default_ty()); } else { code.i32c(0); } code.call(6); }
             "pow" => { for a in args.iter().take(2) { self.lower_value_as(code, a, &Ty::scalar(TyKind::Double)); } code.call(8); }
-            "sqrt" | "sin" | "cos" | "floor" | "ceil" => { if let Some(a) = args.first() { self.lower_value_as(code, a, &Ty::scalar(TyKind::Double)); } else { code.f64c(0.0); } if name == "sqrt" { code.op(0x9f, "f64.sqrt"); } else if name == "floor" { code.op(0x9c, "f64.floor"); } else if name == "ceil" { code.op(0x9b, "f64.ceil"); } else { code.call(if name == "sin" { 9 } else { 10 }); } }
+            "sqrt" | "sin" | "cos" | "floor" | "ceil" => {
+                if let Some(a) = args.first() {
+                    self.lower_value_as(code, a, &Ty::scalar(TyKind::Double));
+                } else {
+                    code.f64c(0.0);
+                }
+                match name.as_str() {
+                    "sqrt" => code.op(0x9f, "f64.sqrt"),
+                    "floor" => code.op(0x9c, "f64.floor"),
+                    "ceil" => code.op(0x9b, "f64.ceil"),
+                    "sin" => code.call(9),
+                    _ => code.call(10),
+                }
+            }
             "canOnline" => { code.call(10); code.i32c(0); }
             "canOffline" => { code.call(11); code.i32c(0); }
             "stopMeasurement" => { code.call(12); code.i32c(0); }
