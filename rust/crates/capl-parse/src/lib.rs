@@ -1,6 +1,6 @@
 //! `capl-parse` — recursive descent, precedence climbing, error recovery.
 //!
-//! Mirrors DMD's `parse.d`: this crate is a pure syntax machine. It never
+//! This crate is a pure syntax machine. It never
 //! looks up a symbol, never folds a constant, never reports a type error.
 //! Anything it cannot make sense of becomes a diagnostic plus a resync to the
 //! next `;`, `}` or top-level keyword, so one typo does not bury the file.
@@ -98,6 +98,13 @@ impl<'d> Parser<'d> {
     fn at_type(&self) -> bool {
         self.cur().kind == TokKind::Keyword && TYPE_KEYWORDS.contains(&self.cur().text.as_str())
     }
+    fn type_ref(&mut self) -> Ty {
+        if self.cur().is_kw("struct") {
+            self.bump();
+            return Ty::named_struct(self.expect_ident());
+        }
+        self.ty()
+    }
     fn ty(&mut self) -> Ty {
         let t = self.bump();
         Ty::scalar(match t.text.as_str() {
@@ -142,6 +149,10 @@ impl<'d> Parser<'d> {
         if self.eat_kw("enum") {
             return Some(vec![Decl::Enum(self.enum_decl(start))]);
         }
+        if self.cur().is_kw("struct") && self.nth(1).kind == TokKind::Ident && self.nth(2).is_punct("{") {
+            self.bump();
+            return Some(vec![Decl::Struct(self.struct_decl(start))]);
+        }
         if self.eat_kw("includes") {
             let text = self.skip_block();
             return Some(vec![Decl::Includes { text, loc: self.span(start) }]);
@@ -166,7 +177,12 @@ impl<'d> Parser<'d> {
         if self.at_type() || self.cur().is_kw("const") {
             let save = self.p;
             let _ = self.eat_kw("const");
-            let ty = self.ty();
+            let mut ty = self.type_ref();
+            if self.cur().is_punct("[") && self.nth(1).is_punct("]") && self.nth(2).kind == TokKind::Ident && self.nth(3).is_punct("(") {
+                self.bump();
+                self.bump();
+                ty = Ty::array(ty, 0);
+            }
             if self.cur().kind == TokKind::Ident && self.nth(1).is_punct("(") {
                 return Some(vec![Decl::Func(self.function(ty, start))]);
             }
@@ -193,6 +209,27 @@ impl<'d> Parser<'d> {
         self.expect("}");
         self.eat_punct(";");
         EnumDecl { name, items, loc: self.span(start) }
+    }
+
+    fn struct_decl(&mut self, start: Loc) -> StructDecl {
+        let name = self.expect_ident();
+        self.expect("{");
+        let mut fields = Vec::new();
+        while !self.at_eof() && !self.cur().is_punct("}") {
+            let field_start = self.cur().loc;
+            let decl_ty = self.type_ref();
+            let field_name = self.expect_ident();
+            let mut dims = Vec::new();
+            if self.eat_punct("[") {
+                if !self.cur().is_punct("]") { dims.push(self.assign_expr()); }
+                self.expect("]");
+            }
+            self.expect(";");
+            fields.push(StructField { name: field_name, decl_ty, dims, loc: self.span(field_start) });
+        }
+        self.expect("}");
+        self.eat_punct(";");
+        StructDecl { name, fields, ty: None, loc: self.span(start) }
     }
 
     fn resync(&mut self) {
@@ -245,7 +282,7 @@ impl<'d> Parser<'d> {
                     break;
                 }
                 let p_start = self.cur().loc;
-                let base = if self.at_type() { self.ty() } else { Ty::scalar(TyKind::Long) };
+                let base = if self.at_type() { self.type_ref() } else { Ty::scalar(TyKind::Long) };
                 let pname = self.expect_ident();
                 let ty = if self.eat_punct("[") {
                     self.expect("]");
@@ -275,7 +312,7 @@ impl<'d> Parser<'d> {
             self.eat_punct(";");
             return Vec::new();
         }
-        let mut base = self.ty();
+        let mut base = self.type_ref();
         if base.kind == TyKind::Message {
             if self.cur().kind == TokKind::Int {
                 base.msg_id = Some(self.bump().int as u32);
@@ -735,5 +772,14 @@ mod tests {
         assert!(matches!(inner_left.kind, ExprKind::Ident { ref name, .. } if name == "b"));
         let ExprKind::Cond { otherwise, .. } = &inner_right.kind else { panic!("expected conditional") };
         assert!(matches!(otherwise.kind, ExprKind::Cond { .. }));
+    }
+
+    #[test]
+    fn parses_named_structs_and_aggregate_function_types() {
+        let mut bag = DiagBag::new();
+        let unit = parse("struct Pair { long left; byte flags[2]; }; struct Pair make(struct Pair input) { return input; }", "struct.can", &mut bag);
+        assert!(!bag.has_errors(), "{:?}", bag.items());
+        assert!(matches!(&unit.decls[0], Decl::Struct(s) if s.name == "Pair" && s.fields.len() == 2));
+        assert!(matches!(&unit.decls[1], Decl::Func(f) if f.params[0].decl_ty.kind == TyKind::Struct));
     }
 }

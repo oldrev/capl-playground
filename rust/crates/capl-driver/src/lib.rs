@@ -15,6 +15,7 @@
 use capl_ast::Unit;
 use capl_diag::{DiagBag, Diagnostic};
 use capl_sema::SemaResult;
+use std::path::{Path, PathBuf};
 
 #[cfg(feature = "wasm-backend")]
 pub use capl_codegen_wasm::{WasmArtifact, WasmBackend};
@@ -47,11 +48,12 @@ pub enum BackendId {
 pub struct Options {
     pub file_name: String,
     pub backends: Vec<BackendId>,
+    pub include_paths: Vec<String>,
 }
 
 impl Default for Options {
     fn default() -> Self {
-        Self { file_name: "source.can".into(), backends: vec![BackendId::Wasm, BackendId::C, BackendId::Ast] }
+        Self { file_name: "source.can".into(), backends: vec![BackendId::Wasm, BackendId::C, BackendId::Ast], include_paths: Vec::new() }
     }
 }
 
@@ -89,8 +91,15 @@ pub fn compile(src: &str, opts: Options) -> Output {
     let mut diags = DiagBag::new();
     let mut out = Output::default();
 
+    let mut stack = Vec::new();
+    let source_path = Path::new(&opts.file_name);
+    if source_path.is_file() {
+        if let Ok(path) = std::fs::canonicalize(source_path) { stack.push(path); }
+    }
+    let expanded = expand_includes(src, &opts.file_name, &opts.include_paths, &mut stack, &mut diags);
+
     let t0 = clock_us();
-    let mut unit = capl_parse::parse(src, &opts.file_name, &mut diags);
+    let mut unit = capl_parse::parse(&expanded, &opts.file_name, &mut diags);
     out.timings.parse_us = clock_us().saturating_sub(t0);
 
     let t1 = clock_us();
@@ -116,5 +125,49 @@ pub fn compile(src: &str, opts: Options) -> Output {
     out.diagnostics = diags.items().to_vec();
     out.sema = Some(sema);
     out.unit = Some(unit);
+    out
+}
+
+fn expand_includes(src: &str, file_name: &str, include_paths: &[String], stack: &mut Vec<PathBuf>, diags: &mut DiagBag) -> String {
+    let mut lex_diags = DiagBag::new();
+    let toks = capl_parse::Lexer::new(src, &mut lex_diags).collect_all();
+    diags.merge(lex_diags);
+    let mut out = String::new();
+    let mut i = 0;
+    while i < toks.len() {
+        if toks[i].is_kw("includes") && toks.get(i + 1).is_some_and(|t| t.is_punct("{")) {
+            let mut j = i + 2;
+            while j < toks.len() && !toks[j].is_punct("}") {
+                if toks[j].kind == capl_parse::TokKind::Str {
+                    let requested = toks[j].string.clone();
+                    let current = Path::new(file_name).parent().unwrap_or_else(|| Path::new("."));
+                    let mut candidates = vec![current.join(&requested)];
+                    candidates.extend(include_paths.iter().map(|p| Path::new(p).join(&requested)));
+                    let Some(path) = candidates.into_iter().find(|p| p.is_file()) else {
+                        diags.error(capl_diag::Stage::Parse, toks[j].loc, format!("include file '{requested}' was not found"));
+                        j += 1;
+                        continue;
+                    };
+                    let canonical = std::fs::canonicalize(&path).unwrap_or(path.clone());
+                    if stack.contains(&canonical) {
+                        diags.error(capl_diag::Stage::Parse, toks[j].loc, format!("recursive include of '{}'", path.display()));
+                    } else if let Ok(content) = std::fs::read_to_string(&path) {
+                        stack.push(canonical);
+                        out.push_str(&expand_includes(&content, &path.to_string_lossy(), include_paths, stack, diags));
+                        out.push('\n');
+                        stack.pop();
+                    } else {
+                        diags.error(capl_diag::Stage::Parse, toks[j].loc, format!("cannot read include file '{}'", path.display()));
+                    }
+                }
+                j += 1;
+            }
+            i = if toks.get(j + 1).is_some_and(|t| t.is_punct(";")) { j + 2 } else { j.saturating_add(1) };
+        } else {
+            out.push_str(&toks[i].text);
+            out.push(' ');
+            i += 1;
+        }
+    }
     out
 }

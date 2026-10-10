@@ -30,22 +30,15 @@ extern int32_t capl_random(int32_t n);
 static CaplMessage *this_msg;
 "#;
 
-pub fn c_type(t: &Ty) -> &'static str {
+pub fn c_type(t: &Ty) -> String {
     match t.kind {
-        TyKind::Void => "void",
-        TyKind::Char => "char",
-        TyKind::Byte => "uint8_t",
-        TyKind::Int => "int16_t",
-        TyKind::Word => "uint16_t",
-        TyKind::Long => "int32_t",
-        TyKind::Dword => "uint32_t",
-        TyKind::Int64 => "int64_t",
-        TyKind::Qword => "uint64_t",
-        TyKind::Float | TyKind::Double => "double",
-        TyKind::Timer | TyKind::MsTimer => "CaplTimer",
-        TyKind::Message => "CaplMessage",
-        TyKind::Array => t.elem.as_ref().map(|e| c_type(e)).unwrap_or("int32_t"),
-        TyKind::Error => "int32_t",
+        TyKind::Void => "void".into(), TyKind::Char => "char".into(), TyKind::Byte => "uint8_t".into(),
+        TyKind::Int => "int16_t".into(), TyKind::Word => "uint16_t".into(), TyKind::Long => "int32_t".into(),
+        TyKind::Dword => "uint32_t".into(), TyKind::Int64 => "int64_t".into(), TyKind::Qword => "uint64_t".into(),
+        TyKind::Float | TyKind::Double => "double".into(), TyKind::Timer | TyKind::MsTimer => "CaplTimer".into(),
+        TyKind::Message => "CaplMessage".into(), TyKind::Array => t.elem.as_ref().map(|e| c_type(e)).unwrap_or_else(|| "int32_t".into()),
+        TyKind::Struct => t.name.clone().map(|n| format!("struct {n}")).unwrap_or_else(|| "int32_t".into()),
+        TyKind::Error => "int32_t".into(),
     }
 }
 
@@ -81,6 +74,16 @@ impl<'s> CBackend<'s> {
                 self.indent -= 1;
                 self.line("};");
             }
+            if let Decl::Struct(s) = decl {
+                self.line(&format!("struct {} {{", s.name)); self.indent += 1;
+                if let Some(ty) = &s.ty { let _ = ty; }
+                for f in &s.fields {
+                    let ty = c_type(&f.decl_ty);
+                    if f.dims.is_empty() { self.line(&format!("{} {};", ty, f.name)); }
+                    else { self.line(&format!("{} {}[{}];", ty, f.name, self.expr(&f.dims[0]))); }
+                }
+                self.indent -= 1; self.line("};");
+            }
         }
         for &id in &self.sema.globals {
             let Some(v) = self.sema.var(id) else { continue };
@@ -94,6 +97,7 @@ impl<'s> CBackend<'s> {
                     v.ty.msg_id.unwrap_or(0)
                 ),
                 TyKind::Array => format!("static {} {}[{}];", c_type(&v.ty), v.name, v.ty.len.unwrap_or(1)),
+                TyKind::Struct => format!("static {} {};", c_type(&v.ty), v.name),
                 _ => format!("static {} {};", c_type(&v.ty), v.name),
             };
             self.line(&decl);
@@ -109,7 +113,7 @@ impl<'s> CBackend<'s> {
                         f.params
                             .iter()
                             .map(|p| {
-                                if p.decl_ty.kind == TyKind::Array {
+                                if matches!(p.decl_ty.kind, TyKind::Array | TyKind::Struct) {
                                     format!("{} *{}", c_type(&p.decl_ty), p.name)
                                 } else {
                                     format!("{} {}", c_type(&p.decl_ty), p.name)
@@ -118,7 +122,8 @@ impl<'s> CBackend<'s> {
                             .collect::<Vec<_>>()
                             .join(", ")
                     };
-                    let sig = format!("{} {}({})", c_type(&f.ret_ty), f.name, params);
+                    let ret = if matches!(f.ret_ty.kind, TyKind::Array | TyKind::Struct) { format!("{} *", c_type(&f.ret_ty)) } else { c_type(&f.ret_ty) };
+                    let sig = format!("{} {}({})", ret, f.name, params);
                     self.line(&sig);
                     self.stmt(&f.body);
                     self.line("");
@@ -229,7 +234,10 @@ impl<'s> CBackend<'s> {
             StmtKind::Continue => self.line("continue;"),
             StmtKind::Return { expr } => match expr {
                 Some(e) => {
+                    let aggregate = e.ty.as_ref().is_some_and(|t| t.kind == TyKind::Struct);
+                    let already_address = matches!(e.kind, ExprKind::Ident { sym: Some(id), .. } if self.sema.var(id).is_some_and(|v| v.storage == capl_sema::Storage::Param && v.ty.kind == TyKind::Struct));
                     let e = self.expr(e);
+                    let e = if aggregate && !already_address { format!("&{e}") } else { e };
                     self.line(&format!("return {e};"));
                 }
                 None => self.line("return;"),
@@ -258,7 +266,11 @@ impl<'s> CBackend<'s> {
                 format!("({} {} {})", self.expr(left), op, self.expr(right))
             }
             ExprKind::Assign { op, target, value } => {
-                format!("({} {} {})", self.expr(target), op, self.expr(value))
+                if op == "=" && target.ty.as_ref().is_some_and(|t| t.kind == TyKind::Struct) {
+                    format!("({} = *{})", self.expr(target), self.expr(value))
+                } else {
+                    format!("({} {} {})", self.expr(target), op, self.expr(value))
+                }
             }
             ExprKind::Cond { cond, then, otherwise } => {
                 format!("({} ? {} : {})", self.expr(cond), self.expr(then), self.expr(otherwise))
@@ -267,6 +279,8 @@ impl<'s> CBackend<'s> {
             ExprKind::Member { base, name } => {
                 if MSG_FIELDS.iter().any(|(f, _, _)| f == name) {
                     format!("{}->{}", self.msg_ref(base), name)
+                } else if self.is_struct_param(base) {
+                    format!("{}->{}", self.expr(base), name)
                 } else {
                     format!("{}.{}", self.expr(base), name)
                 }
@@ -285,6 +299,12 @@ impl<'s> CBackend<'s> {
         }
     }
 
+    fn is_struct_param(&self, e: &Expr) -> bool {
+        let ExprKind::Ident { sym: Some(id), .. } = e.kind else { return false };
+        self.sema.var(id).is_some_and(|v| v.storage == capl_sema::Storage::Param && v.ty.kind == TyKind::Struct)
+    }
+
+
     fn call(&self, callee: &Expr, args: &[Expr]) -> String {
         if let ExprKind::Member { base, name } = &callee.kind {
             let idx = args.first().map(|a| self.expr(a)).unwrap_or_else(|| "0".into());
@@ -298,7 +318,12 @@ impl<'s> CBackend<'s> {
             ExprKind::Ident { name, .. } => name.clone(),
             _ => "(*unknown)".into(),
         };
-        let a: Vec<String> = args.iter().map(|x| self.expr(x)).collect();
+        let a: Vec<String> = args.iter().map(|x| {
+            if let Some(id) = match &x.kind { ExprKind::Ident { sym: Some(id), .. } => Some(*id), _ => None } {
+                if self.sema.var(id).is_some_and(|v| v.ty.kind == TyKind::Struct) { return format!("&{}", self.expr(x)); }
+            }
+            self.expr(x)
+        }).collect();
         match name.as_str() {
             "write" => format!("capl_write({})", a.join(", ")),
             "setTimer" => format!("capl_set_timer({})", a.join(", ")),

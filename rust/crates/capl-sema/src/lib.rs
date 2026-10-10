@@ -1,7 +1,7 @@
 //! `capl-sema` — the semantic passes.
 //!
-//! DMD runs `semantic1` (declarations), `semantic2` (initialisers) and
-//! `semantic3` (bodies). We do the same with two passes, because CAPL has no
+//! The semantic pipeline uses separate declaration and body passes. We use two
+//! passes because CAPL has no
 //! templates: pass 1 publishes every global declaration so order does not
 //! matter, pass 2 walks the bodies and decorates the tree.
 //!
@@ -42,10 +42,18 @@ pub struct FuncSym {
 }
 
 #[derive(Clone, Debug)]
+pub struct StructLayout {
+    pub name: String,
+    pub members: Vec<StructMember>,
+    pub size: u32,
+}
+
+#[derive(Clone, Debug)]
 pub enum Sym {
     Var(VarSym),
     Func(FuncSym),
     EnumConst(i64),
+    Struct(StructLayout),
 }
 
 #[derive(Debug, Default)]
@@ -56,6 +64,7 @@ pub struct SemaResult {
     pub funcs: Vec<SymId>,
     /// locals per function/handler export name, in declaration order
     pub locals: HashMap<String, Vec<SymId>>,
+    pub structs: HashMap<String, StructLayout>,
 }
 
 impl SemaResult {
@@ -169,11 +178,51 @@ impl<'d> Sema<'d> {
         self.scopes.iter().rev().find_map(|s| s.names.get(name).copied())
     }
 
+    fn resolve_type(&self, ty: &Ty) -> Ty {
+        if ty.kind != TyKind::Struct {
+            return ty.clone();
+        }
+        let mut resolved = ty.clone();
+        if let Some(name) = &ty.name {
+            resolved.size = self.out.structs.get(name).map(|s| s.size);
+        }
+        resolved
+    }
+
+    fn field_type(&self, base: &Ty, name: &str) -> Option<Ty> {
+        let struct_name = base.name.as_deref()?;
+        self.out.structs.get(struct_name).and_then(|layout| layout.members.iter().find(|m| m.name == name).map(|m| m.ty.clone()))
+    }
+
     fn run(mut self, unit: &mut Unit) -> SemaResult {
         // ── pass 1: every global declaration becomes visible ──
         let mut funcs: Vec<usize> = Vec::new();
         for (i, decl) in unit.decls.iter_mut().enumerate() {
             match decl {
+                Decl::Struct(s) => {
+                    if self.out.structs.contains_key(&s.name) {
+                        self.diags.error(Stage::Sema, s.loc, format!("struct '{}' is already declared", s.name));
+                        continue;
+                    }
+                    let mut offset = 0;
+                    let mut members = Vec::new();
+                    for field in &s.fields {
+                        let mut ty = self.resolve_type(&field.decl_ty);
+                        if !field.dims.is_empty() {
+                            let len = self.const_fold(&field.dims[0]).unwrap_or(0).max(0) as u32;
+                            if len == 0 { self.diags.error(Stage::Sema, field.loc, "struct array field requires a positive constant length"); }
+                            ty = Ty::array(ty, len.max(1));
+                        }
+                        let size = ty.size_of();
+                        if size == 0 { self.diags.error(Stage::Sema, field.loc, format!("unknown or recursive type in struct field '{}'", field.name)); }
+                        members.push(StructMember { name: field.name.clone(), ty, offset });
+                        offset = offset.saturating_add(size.max(1));
+                    }
+                    let layout = StructLayout { name: s.name.clone(), members, size: offset.max(1) };
+                    s.ty = Some(Ty { kind: TyKind::Struct, name: Some(s.name.clone()), size: Some(layout.size), elem: None, len: None, msg_id: None });
+                    self.out.structs.insert(s.name.clone(), layout.clone());
+                    self.declare(&s.name, Sym::Struct(layout), s.loc);
+                }
                 Decl::Enum(e) => {
                     let mut next = 0;
                     for item in &mut e.items {
@@ -190,6 +239,8 @@ impl<'d> Sema<'d> {
                 }
                 Decl::Var(v) => Self::declare_var(&mut self, v, Storage::Global),
                 Decl::Func(f) => {
+                    f.ret_ty = self.resolve_type(&f.ret_ty);
+                    for p in &mut f.params { p.decl_ty = self.resolve_type(&p.decl_ty); }
                     let index = self.out.funcs.len();
                     let sym = Sym::Func(FuncSym {
                         name: f.name.clone(),
@@ -212,6 +263,7 @@ impl<'d> Sema<'d> {
         for decl in unit.decls.iter_mut() {
             match decl {
                 Decl::Func(f) => {
+                    f.ret_ty = self.resolve_type(&f.ret_ty);
                     self.cur_ret = f.ret_ty.clone();
                     self.cur_this = None;
                     self.cur_fn = f.name.clone();
@@ -219,7 +271,7 @@ impl<'d> Sema<'d> {
                     for p in f.params.iter_mut() {
                         let sym = Sym::Var(VarSym {
                             name: p.name.clone(),
-                            ty: p.decl_ty.clone(),
+                            ty: self.resolve_type(&p.decl_ty),
                             storage: Storage::Param,
                             timer_id: None,
                             loc: p.loc,
@@ -255,7 +307,7 @@ impl<'d> Sema<'d> {
     }
 
     fn declare_var(&mut self, v: &mut VarDecl, storage: Storage) {
-        let mut ty = v.decl_ty.clone();
+        let mut ty = self.resolve_type(&v.decl_ty);
         if v.is_array {
             let len = match (v.dims.first(), &v.init) {
                 (Some(e), _) => self.const_fold(e).unwrap_or(0).max(0) as u32,
@@ -420,6 +472,7 @@ impl<'d> Sema<'d> {
                         Sym::Var(v) => v.ty.clone(),
                         Sym::Func(_) => Ty::scalar(TyKind::Error),
                         Sym::EnumConst(_) => Ty::scalar(TyKind::Long),
+                        Sym::Struct(layout) => Ty { kind: TyKind::Struct, name: Some(layout.name.clone()), size: Some(layout.size), elem: None, len: None, msg_id: None },
                     }
                 }
                 None => {
@@ -458,7 +511,12 @@ impl<'d> Sema<'d> {
             }
             ExprKind::Member { base, name } => {
                 let b = self.expr(base);
-                if b.kind != TyKind::Message {
+                if b.kind == TyKind::Struct {
+                    self.field_type(&b, name).unwrap_or_else(|| {
+                        self.diags.error(Stage::Sema, e.loc, format!("struct has no field '{name}'"));
+                        Ty::scalar(TyKind::Error)
+                    })
+                } else if b.kind != TyKind::Message {
                     self.diags.error(Stage::Sema, e.loc, format!("type has no member '{name}'"));
                     Ty::scalar(TyKind::Error)
                 } else {
@@ -558,6 +616,9 @@ impl<'d> Sema<'d> {
             ExprKind::Ident { name, sym } => {
                 let id = sym.or_else(|| self.lookup(name))?;
                 self.out.enum_const(id)
+            }
+            ExprKind::Cond { cond, then, otherwise } => {
+                if self.const_fold(cond)? != 0 { self.const_fold(then) } else { self.const_fold(otherwise) }
             }
             _ => None,
         }

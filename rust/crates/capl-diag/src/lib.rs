@@ -1,7 +1,7 @@
 //! `capl-diag` — source positions and the diagnostic bag.
 //!
 //! Every other crate in the workspace depends on this one and on nothing else,
-//! exactly like DMD's `errors.d` sits underneath the lexer and the parser.
+//! and sits underneath the lexer and the parser.
 #![forbid(unsafe_code)]
 
 use core::fmt;
@@ -72,7 +72,7 @@ impl fmt::Display for Diagnostic {
     }
 }
 
-/// Collects diagnostics; the compiler keeps going as long as it can, like DMD.
+/// Collects diagnostics while the compiler keeps going as long as it can.
 #[derive(Clone, Debug, Default)]
 pub struct DiagBag {
     items: Vec<Diagnostic>,

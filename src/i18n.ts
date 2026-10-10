@@ -78,7 +78,7 @@ const en = {
   tree: "Tree",
   aboutTitle: "A CAPL compiler, shipped as reusable crates",
   aboutBody:
-    "The compiler core is organised the way DMD organises its front end: a hand-written lexer feeds a recursive-descent parser, the parser builds a plain AST, and separate semantic passes decorate that AST in place. Backends are pure consumers of the decorated AST, selected at run time through one trait.",
+    "The compiler core is organised as reusable stages: a hand-written lexer feeds a recursive-descent parser, the parser builds a plain AST, and separate semantic passes decorate that AST in place. Backends are pure consumers of the decorated AST, selected at run time through one trait.",
   aboutCrates: "Workspace crates",
   aboutPipelineNote:
     "Every stage is a crate you can depend on alone: embed just the lexer for an editor, just the parser for a linter, or the whole driver for a compiler.",
@@ -178,7 +178,7 @@ const zh: Dict = {
   tree: "树形",
   aboutTitle: "CAPL 编译器，拆成可复用的 crate",
   aboutBody:
-    "编译器核心沿用 DMD 前端的组织方式：手写词法分析器喂给递归下降语法分析器，语法分析器只负责构建纯粹的 AST，随后由独立的语义阶段就地标注这棵树。后端只消费被标注过的 AST，并通过同一个 trait 在运行期选择。",
+    "编译器核心由可复用的阶段组成：手写词法分析器喂给递归下降语法分析器，语法分析器只负责构建纯粹的 AST，随后由独立的语义阶段就地标注这棵树。后端只消费被标注过的 AST，并通过同一个 trait 在运行期选择。",
   aboutCrates: "工作区 crate",
   aboutPipelineNote:
     "每个阶段都是可以单独依赖的 crate：编辑器只需要词法分析器，静态检查工具只需要语法分析器，完整编译器才需要 driver。",

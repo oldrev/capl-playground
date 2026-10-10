@@ -130,7 +130,7 @@ pub fn compile(src: &str, backends: &str) -> Result<JsValue, JsValue> {
     let mut lex_diags = capl_diag::DiagBag::new();
     let token_count = capl_parse::Lexer::new(src, &mut lex_diags).collect_all().len();
     let lex_ms = js_sys::Date::now() - lex_start;
-    let out = compile_impl(src, Options { file_name: "source.can".into(), backends });
+    let out = compile_impl(src, Options { file_name: "source.can".into(), backends, include_paths: Vec::new() });
 
     let node_count = serde_json::from_str::<serde_json::Value>(&out.ast_json)
         .map(|v| count_nodes(&v))

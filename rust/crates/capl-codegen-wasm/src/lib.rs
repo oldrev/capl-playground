@@ -424,7 +424,7 @@ impl<'s> WasmBackend<'s> {
             for id in locals {
                 let Some(v) = self.sema.var(*id) else { continue };
                 if matches!(v.ty.kind, TyKind::Timer | TyKind::MsTimer) { continue; }
-                if v.ty.kind == TyKind::Array || v.ty.kind == TyKind::Message {
+                if matches!(v.ty.kind, TyKind::Array | TyKind::Message | TyKind::Struct) {
                     let addr = self.alloc(v.ty.size_of(), v.ty.size_of().clamp(1, 8));
                     self.static_addr.insert(*id, addr);
                     self.layout.push(LayoutEntry { name: format!("{owner}::{}", v.name), addr: addr as i64, size: v.ty.size_of(), ty: format!("{:?}", v.ty.kind) });
@@ -555,7 +555,11 @@ impl<'s> WasmBackend<'s> {
             ExprKind::Call { callee, args, sym } => self.lower_call(code, callee, args, *sym),
             ExprKind::Index { base, index } => {
                 let elem = base.ty.as_ref().and_then(|t| t.elem.as_ref()).map(|t| (**t).clone()).unwrap_or_else(default_ty);
-                self.lower_value(code, base);
+                if base.ty.as_ref().is_some_and(|t| t.kind == TyKind::Array) && matches!(base.kind, ExprKind::Member { .. }) {
+                    self.lower_aggregate_addr(code, base);
+                } else {
+                    self.lower_value(code, base);
+                }
                 self.lower_value_as(code, index, &default_ty());
                 code.i32c(elem.size_of() as i32);
                 code.op(0x6c, "i32.mul");
@@ -563,8 +567,14 @@ impl<'s> WasmBackend<'s> {
                 self.load_mem(code, &elem);
             }
             ExprKind::Member { base, name } => {
-                let ty = self.member_ty(name);
-                if let Some(off) = self.member_offset(name) {
+                if let Some((off, ty)) = base.ty.as_ref().and_then(|t| self.struct_field(t, name)) {
+                    self.emit_struct_addr(code, base, off);
+                    self.load_mem(code, &ty);
+                    return;
+                }
+                let field = base.ty.as_ref().and_then(|t| self.struct_field(t, name));
+                let ty = field.as_ref().map(|(_, ty)| ty.clone()).unwrap_or_else(|| self.member_ty(name));
+                if let Some((off, _)) = field.or_else(|| self.member_offset(name).map(|off| (off, ty.clone()))) {
                     if matches!(base.kind, ExprKind::This) {
                         code.get_global(0); code.i32c(off as i32); code.op(0x6a, "i32.add"); self.load_mem(code, &ty);
                     } else if let Some(addr) = self.member_addr(code, base, name) {
@@ -631,10 +641,38 @@ impl<'s> WasmBackend<'s> {
     }
 
     fn lower_assign(&mut self, code: &mut Code, target: &Expr, value: &Expr, op: &str) {
+        if op == "=" && expr_ty(target).kind == TyKind::Struct {
+            self.lower_value(code, value);
+            let src = code.local(I32); code.set_local(src);
+            self.lower_aggregate_addr(code, target);
+            let dst = code.local(I32); code.set_local(dst);
+            let size = expr_ty(target).size_of();
+            for offset in (0..(size / 4 * 4)).step_by(4) {
+                code.get_local(src); if offset != 0 { code.i32c(offset as i32); code.op(0x6a, "i32.add"); }
+                code.mem(0x28, 2, 0, "i32.load");
+                code.get_local(dst); if offset != 0 { code.i32c(offset as i32); code.op(0x6a, "i32.add"); }
+                code.mem(0x36, 2, 0, "i32.store");
+            }
+            for offset in (size / 4 * 4)..size {
+                code.get_local(src); if offset != 0 { code.i32c(offset as i32); code.op(0x6a, "i32.add"); }
+                code.mem(0x2d, 0, 0, "i32.load8_u");
+                code.get_local(dst); if offset != 0 { code.i32c(offset as i32); code.op(0x6a, "i32.add"); }
+                code.mem(0x3a, 0, 0, "i32.store8");
+            }
+            self.lower_aggregate_addr(code, target);
+            return;
+        }
         if let ExprKind::Member { base, name } = &target.kind {
             if op == "=" {
-                let ty = self.member_ty(name);
-                if let Some(off) = self.member_offset(name) {
+                if let Some((off, ty)) = base.ty.as_ref().and_then(|t| self.struct_field(t, name)) {
+                    self.lower_value_as(code, value, &ty);
+                    let tmp = code.local(vt(&ty)); code.set_local(tmp);
+                    self.emit_struct_addr(code, base, off);
+                    code.get_local(tmp); self.store_mem(code, &ty); code.get_local(tmp); return;
+                }
+                let field = base.ty.as_ref().and_then(|t| self.struct_field(t, name));
+                let ty = field.as_ref().map(|(_, ty)| ty.clone()).unwrap_or_else(|| self.member_ty(name));
+                if let Some((off, _)) = field.or_else(|| self.member_offset(name).map(|off| (off, ty.clone()))) {
                     self.lower_value_as(code, value, &ty); let tmp = code.local(vt(&ty)); code.set_local(tmp);
                     if matches!(base.kind, ExprKind::This) { code.get_global(0); code.i32c(off as i32); code.op(0x6a, "i32.add"); }
                     else if let Some((addr, _)) = self.member_addr(code, base, name) { code.i32c(addr as i32); } else { return; }
@@ -677,11 +715,25 @@ impl<'s> WasmBackend<'s> {
         }
     }
 
+    fn lower_aggregate_addr(&mut self, code: &mut Code, expr: &Expr) {
+        match &expr.kind {
+            ExprKind::Ident { sym: Some(id), .. } => {
+                if let Some(addr) = self.global_addr.get(id).or_else(|| self.static_addr.get(id)) { code.i32c(*addr as i32); }
+                else if let Some(slot) = self.slots.get(id) { code.get_local(*slot); } else { code.i32c(0); }
+            }
+            ExprKind::Member { base, name } => {
+                let (off, _) = base.ty.as_ref().and_then(|t| self.struct_field(t, name)).unwrap_or((0, default_ty()));
+                self.emit_struct_addr(code, base, off);
+            }
+            _ => self.lower_value(code, expr),
+        }
+    }
+
     fn load_sym(&self, code: &mut Code, id: SymId) {
         let ty = self.sema.var(id).map(|v| v.ty.clone()).unwrap_or_else(default_ty);
         if let Some(value) = self.consts.get(&id) { self.emit_const(code, &ty, *value); return; }
         if let Some(v) = self.sema.var(id) {
-            if v.ty.kind == TyKind::Array || v.ty.kind == TyKind::Message {
+            if matches!(v.ty.kind, TyKind::Array | TyKind::Message | TyKind::Struct) {
                 if let Some(addr) = self.global_addr.get(&id).or_else(|| self.static_addr.get(&id)) { code.i32c(*addr as i32); return; }
             }
         }
@@ -819,8 +871,24 @@ impl<'s> WasmBackend<'s> {
             ExprKind::Ident { sym: Some(id), .. } => self.global_addr.get(id).or_else(|| self.static_addr.get(id)).copied(),
             _ => None,
         }?;
-        let (off, ty) = (self.member_offset(name)?, self.member_ty(name));
+        let (off, ty) = base.ty.as_ref().and_then(|t| self.struct_field(t, name)).or_else(|| self.member_offset(name).map(|o| (o, self.member_ty(name))))?;
         Some((base_addr + off, ty))
+    }
+
+    fn struct_field(&self, ty: &Ty, name: &str) -> Option<(u32, Ty)> {
+        let struct_name = ty.name.as_deref()?;
+        let layout = self.sema.structs.get(struct_name)?;
+        layout.members.iter().find(|m| m.name == name).map(|m| (m.offset, m.ty.clone()))
+    }
+
+    fn emit_struct_addr(&self, code: &mut Code, base: &Expr, offset: u32) {
+        let ExprKind::Ident { sym: Some(id), .. } = base.kind else { code.i32c(0); return };
+        if let Some(slot) = self.slots.get(&id) {
+            code.get_local(*slot);
+            if offset != 0 { code.i32c(offset as i32); code.op(0x6a, "i32.add"); }
+        } else if let Some(addr) = self.global_addr.get(&id).or_else(|| self.static_addr.get(&id)) {
+            code.i32c((*addr + offset) as i32);
+        } else { code.i32c(0); }
     }
 
     fn member_offset(&self, name: &str) -> Option<u32> { match name { "id" => Some(0), "dlc" => Some(4), "can" => Some(16), "dir" => Some(20), "rtr" => Some(24), "time" => Some(28), "byte" | "word" | "dword" | "long" | "qword" => Some(8), _ => None } }

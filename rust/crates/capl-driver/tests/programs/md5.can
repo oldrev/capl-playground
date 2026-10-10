@@ -1,0 +1,68 @@
+// MD5 for the single-block message "abc". The fixture intentionally keeps
+// the compression function explicit so it exercises common CAPL constructs.
+variables {
+  dword state[4] = { 0x67452301, 0xEFCDAB89, 0x98BADCFE, 0x10325476 };
+  dword block[16] = { 0x80636261, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 24 };
+  dword result[4];
+}
+
+dword rol(dword value, long amount) {
+  return (value << amount) | (value >> (32 - amount));
+}
+
+dword f(dword b, dword c, dword d) { return (b & c) | ((~b) & d); }
+dword g(dword b, dword c, dword d) { return (b & d) | (c & (~d)); }
+dword h(dword b, dword c, d) { return b ^ c ^ d; }
+dword i(dword b, dword c, d) { return c ^ (b | (~d)); }
+
+void roundStep(long round, long index, long shift, dword constant) {
+  dword a;
+  dword b;
+  dword c;
+  dword d;
+  dword mix;
+  a = state[0];
+  b = state[1];
+  c = state[2];
+  d = state[3];
+  if (round == 0) mix = f(b, c, d);
+  else if (round == 1) mix = g(b, c, d);
+  else if (round == 2) mix = h(b, c, d);
+  else mix = i(b, c, d);
+  a = b + rol(a + mix + block[index] + constant, shift);
+  state[0] = d;
+  state[1] = a;
+  state[2] = b;
+  state[3] = c;
+}
+
+void md5() {
+  long round;
+  long n;
+  long index;
+  long shift;
+  dword constants[4] = { 0xD76AA478, 0xE8C7B756, 0x242070DB, 0xC1BDCEEE };
+  for (round = 0; round < 4; round++) {
+    for (n = 0; n < 16; n++) {
+      index = n;
+      if (round == 1) index = (5 * n + 1) % 16;
+      else if (round == 2) index = (3 * n + 5) % 16;
+      else if (round == 3) index = (7 * n) % 16;
+      shift = 7;
+      if (round == 1) shift = 5;
+      else if (round == 2) shift = 4;
+      else if (round == 3) shift = 6;
+      roundStep(round, index, shift, constants[round]);
+    }
+  }
+  result[0] = state[0] + 0x67452301;
+  result[1] = state[1] + 0xEFCDAB89;
+  result[2] = state[2] + 0x98BADCFE;
+  result[3] = state[3] + 0x10325476;
+}
+
+on start {
+  md5();
+  // Known digest for "abc": 900150983cd24fb0d6963f7d28e17f72.
+  write("md5=%x%x%x%x", result[0], result[1], result[2], result[3]);
+}

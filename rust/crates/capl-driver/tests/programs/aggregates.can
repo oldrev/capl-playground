@@ -1,0 +1,30 @@
+struct Sample {
+  long count;
+  byte flags[4];
+};
+
+variables {
+  struct Sample state;
+  long values[4] = { 2, 4, 8, 16 };
+}
+
+long sum(long items[]) {
+  return items[0] + items[1] + items[2] + items[3];
+}
+
+long[] identity(long items[]) {
+  return items;
+}
+
+struct Sample update(struct Sample input) {
+  input.count = input.count + 1;
+  input.flags[0] = 0xAA;
+  return input;
+}
+
+on start {
+  state.count = sum(values);
+  identity(values);
+  state = update(state);
+  write("count=%d", state.count);
+}

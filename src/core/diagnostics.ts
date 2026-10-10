@@ -21,7 +21,7 @@ export interface Diagnostic {
   stage: Stage;
   message: string;
   loc: Loc;
-  /** DMD-ish short code, e.g. "E0014" */
+  /** Short diagnostic code, e.g. "E0014" */
   code?: string;
 }
 

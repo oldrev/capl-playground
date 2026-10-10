@@ -21,22 +21,6 @@ source.can ─▶ lexer ─▶ parser ─▶ AST ─▶ sema ─┬─▶ wasm b
                                               └─▶ AST backend  ─▶ .json
 ```
 
-## Why it is shaped like DMD
-
-The front end copies the layout that makes DMD's source tree so easy to read:
-
-| stage | crate | rule it obeys |
-|---|---|---|
-| scanning | `capl-lexer` | a hand-written state machine, no regex, keeps trivia so an editor can reuse it |
-| parsing | `capl-parse` | **pure syntax**: never resolves a name, never folds a constant, never reports a type error |
-| tree | `capl-ast` | nodes are data; every expression has an empty `ty` slot |
-| semantics | `capl-sema` | two passes (declarations, then bodies) that *decorate the tree in place* |
-| targets | `capl-codegen-*` | read-only consumers of the decorated tree, chosen at run time through one trait |
-
-Because the stages only talk through the AST, every crate is independently
-useful: take `capl-lexer` for an editor, `capl-parse` for a linter,
-`capl-sema` for a static checker, or the whole `capl-driver` for a compiler.
-
 ## Repository layout
 
 ```
@@ -47,9 +31,8 @@ src/                      the playground UI (React + Vite + Tailwind v4)
   components/             editor, panels, architecture tab
 rust/                     the compiler core as reusable crates
   crates/capl-diag        spans + diagnostic bag
-  crates/capl-lexer       scanner
+  crates/capl-parse       recursive-descent parser and lexer
   crates/capl-ast         AST, type lattice, visitor, serde JSON export
-  crates/capl-parse       recursive-descent parser
   crates/capl-sema        scopes, symbols, types
   crates/capl-codegen-wasm  wasm module writer (LEB128 + sections, no deps)
   crates/capl-codegen-c     C99 writer
@@ -69,6 +52,12 @@ cargo run -p capl-driver -- node.can --emit=wat
 cargo run -p capl-driver -- node.can --emit=wasm -o node.wasm
 cargo test --workspace
 ```
+
+The native driver resolves `includes { "file.can" }` relative to the source
+file. Additional search directories can be supplied with the
+`CAPL_INCLUDE_PATH` environment variable (use the platform path separator).
+The browser build has no filesystem access, so includes are currently limited
+to native driver use.
 
 ### Rust test coverage and CAPL fixtures
 
@@ -125,7 +114,9 @@ a runtime trap instead.
 
 ## Supported language subset
 
-`variables{}` blocks (which may also define types) · globals · `const` · arrays
+`variables{}` blocks (which may also define types) · globals · `const` · named
+`struct` declarations with fields and field arrays · native-driver `includes{}`
+with relative paths and `CAPL_INCLUDE_PATH` · arrays
 and brace initialisers · `byte word dword qword int long int64 float double char`
 · scalar types and **arrays**, including brace initialisers and multi-dimensional
 indexing · message objects with
@@ -134,7 +125,8 @@ events `preStart start stopMeasurement preStop timer message key sysvar envVar
 errorFrame busOff` (with channel-aware matching for `on message CAN2.0x100`) ·
 `if else while do for switch` (with fall-through) `break continue return` · the
 full C expression grammar including `?:`, short-circuit `&&`/`||` and compound
-assignment · user functions with recursion and array parameters · built-ins
+assignment · user functions with recursion, array parameters, and
+address-based aggregate parameters/returns · built-ins
 `write` (printf-style), `output`, `elCount`, `timeNow`, `random`, `abs`, `min`,
 `max`, `sqrt`, `pow`, `sin`, `cos`, `floor`, `ceil`, `strlen`, `canOnline`,
 `canOffline`, `stopMeasurement`.
@@ -143,10 +135,12 @@ Local aggregates are cleared on declaration by the generated `__zero` helper,
 which keeps examples reproducible. Compile-time constants such as `const int N
 = 3` are folded into immediates and never occupy linear memory.
 
-`enum` and `struct` are currently lexer/AST reservation points rather than
-supported source declarations. Not implemented: `includes{}`, database signal
-access (`$Signal`), test modules, passing or returning aggregates by value, and
-whole-struct assignment.
+The current aggregate ABI passes arrays and structures as linear-memory
+addresses in WASM. The C backend uses array pointers and structure pointers for
+function boundaries, and structure-returning functions return a pointer to the
+returned object. This keeps the two backends interoperable with the same
+source-level model; callers should treat aggregate values as storage-backed
+objects rather than scalar register values.
 
 ## TODO: CAPL language coverage
 
@@ -154,16 +148,18 @@ The compiler intentionally implements a focused CAPL subset. The following
 syntax and language features are reserved for future work and should not be
 treated as supported just because their keywords are recognized by the lexer:
 
-- `includes` with real file/database resolution and include search paths.
-- `enum` declarations, enum scoping, and enum values in all semantic contexts.
-- `struct` declarations, named and anonymous fields, field access, and layout
-  compatible with CAPL.
+- `includes` in browser builds, where there is no filesystem include resolver;
+  the native driver supports relative files and `CAPL_INCLUDE_PATH`.
+- Full enum typing, scoped enumerators, and enum compatibility rules beyond the
+  current global constant support.
+- Anonymous structs, recursive layouts, packing/bit-fields, and full CAPL
+  layout compatibility beyond the current named-field subset.
 - Database-backed objects and signal access such as `$Signal`, including
   message-qualified signals and signal assignments.
 - CAPL test modules: `testcase`, `testfunction`, test setup/teardown, and test
   verdict/reporting APIs.
-- Aggregate parameters and return values, including passing arrays or structs
-  by value and whole-struct assignment.
+- Aggregate conversions beyond the current address ABI, including exact CAPL
+  copy/alias rules for every array and structure context.
 - Additional CAPL event forms and runtime objects beyond the current timer,
   message, key, system-variable, environment-variable, and bus/error events.
 - CAPL-specific attributes, qualifiers, namespaces, and configuration syntax
@@ -201,3 +197,7 @@ Use of this project is at your own risk. You are responsible for checking the
 licenses and terms that apply to any source code, specifications, examples,
 trademarks, reverse-engineering activity, and deployment environment involved
 in your use of it. This notice is informational and is not legal advice.
+
+## Compiler architecture reference
+
+The compiler architecture is informed by the design of the DMD front end.

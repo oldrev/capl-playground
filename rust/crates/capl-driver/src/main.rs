@@ -51,7 +51,8 @@ fn main() -> ExitCode {
         "wasm" | "wat" => vec![BackendId::Wasm],
         _ => vec![],
     };
-    let out = compile(&src, Options { file_name: path.clone(), backends });
+    let include_paths = std::env::var("CAPL_INCLUDE_PATH").ok().into_iter().collect();
+    let out = compile(&src, Options { file_name: path.clone(), backends, include_paths });
 
     for d in &out.diagnostics {
         eprintln!("{d}");

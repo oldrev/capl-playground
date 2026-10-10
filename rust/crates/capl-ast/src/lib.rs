@@ -1,6 +1,6 @@
 //! `capl-ast` — the tree the parser builds and the semantic pass decorates.
 //!
-//! Design notes (same bet DMD makes):
+//! Design notes:
 //! * nodes are *data*, not behaviour — no `self.semantic()` methods here;
 //! * every node carries a [`Loc`] so later passes can report precisely;
 //! * expressions have an `Option<Ty>` slot that `capl-sema` fills in;
@@ -42,6 +42,7 @@ pub enum TyKind {
     MsTimer,
     Message,
     Array,
+    Struct,
     Error,
 }
 
@@ -49,6 +50,8 @@ pub enum TyKind {
 #[cfg_attr(feature = "json", derive(Serialize))]
 pub struct Ty {
     pub kind: TyKind,
+    pub name: Option<String>,
+    pub size: Option<u32>,
     pub elem: Option<Box<Ty>>,
     pub len: Option<u32>,
     pub msg_id: Option<u32>,
@@ -56,10 +59,13 @@ pub struct Ty {
 
 impl Ty {
     pub const fn scalar(kind: TyKind) -> Self {
-        Self { kind, elem: None, len: None, msg_id: None }
+        Self { kind, name: None, size: None, elem: None, len: None, msg_id: None }
     }
     pub fn array(elem: Ty, len: u32) -> Self {
-        Self { kind: TyKind::Array, elem: Some(Box::new(elem)), len: Some(len), msg_id: None }
+        Self { kind: TyKind::Array, name: None, size: None, elem: Some(Box::new(elem)), len: Some(len), msg_id: None }
+    }
+    pub fn named_struct(name: impl Into<String>) -> Self {
+        Self { kind: TyKind::Struct, name: Some(name.into()), size: None, elem: None, len: None, msg_id: None }
     }
     /// Storage width in bytes, following CAPL (int = 2, long = 4, float = 8).
     pub fn size_of(&self) -> u32 {
@@ -69,6 +75,7 @@ impl Ty {
             TyKind::Long | TyKind::Dword | TyKind::Timer | TyKind::MsTimer => 4,
             TyKind::Int64 | TyKind::Qword | TyKind::Float | TyKind::Double => 8,
             TyKind::Message => 32,
+            TyKind::Struct => self.size.unwrap_or(0),
             TyKind::Array => self.len.unwrap_or(0) * self.elem.as_ref().map_or(1, |e| e.size_of()),
             _ => 4,
         }
@@ -83,7 +90,7 @@ impl Ty {
         matches!(self.kind, TyKind::Byte | TyKind::Word | TyKind::Dword | TyKind::Qword)
     }
     pub fn is_scalar(&self) -> bool {
-        !matches!(self.kind, TyKind::Void | TyKind::Array | TyKind::Message | TyKind::Error)
+        !matches!(self.kind, TyKind::Void | TyKind::Array | TyKind::Message | TyKind::Struct | TyKind::Error)
     }
 }
 
@@ -313,6 +320,7 @@ ast_node! {
 #[cfg_attr(feature = "json", serde(tag = "kind"))]
 pub enum Decl {
     Enum(EnumDecl),
+    Struct(StructDecl),
     Variables { decls: Vec<VarDecl>, loc: Loc },
     Includes { text: String, loc: Loc },
     Func(FuncDecl),
@@ -340,7 +348,7 @@ impl Unit {
 
 /* ── visitor ───────────────────────────────────────────── */
 
-/// Depth-first visitor; override only what you need (cf. DMD's `visitor.d`).
+/// Depth-first visitor; override only what you need.
 pub trait Visitor {
     fn visit_unit(&mut self, u: &Unit) {
         for d in &u.decls {
@@ -350,6 +358,7 @@ pub trait Visitor {
     fn visit_decl(&mut self, d: &Decl) {
         match d {
             Decl::Enum(_) => {}
+            Decl::Struct(_) => {}
             Decl::Func(f) => self.visit_stmt(&f.body),
             Decl::Handler(h) => self.visit_stmt(&h.body),
             Decl::Variables { decls, .. } => {

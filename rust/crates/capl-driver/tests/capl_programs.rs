@@ -12,6 +12,8 @@ const PROGRAMS: &[(&str, &str)] = &[
     ("expressions", include_str!("programs/expressions.can")),
     ("bitwise_edges", include_str!("programs/bitwise_edges.can")),
     ("control_edges", include_str!("programs/control_edges.can")),
+    ("aggregates", include_str!("programs/aggregates.can")),
+    ("md5", include_str!("programs/md5.can")),
 ];
 
 fn build(name: &str, source: &str) -> capl_driver::Output {
@@ -20,6 +22,7 @@ fn build(name: &str, source: &str) -> capl_driver::Output {
         Options {
             file_name: format!("{name}.can"),
             backends: vec![BackendId::Wasm, BackendId::C, BackendId::Ast],
+            include_paths: Vec::new(),
         },
     )
 }
@@ -127,6 +130,85 @@ fn edge_fixtures_cover_bitwise_updates_and_loop_control() {
         assert!(out.ok, "{name} failed: {:?}", out.diagnostics);
         assert!(out.wasm.as_ref().is_some_and(|wasm| wasm.wat.contains("on_start")));
     }
+}
+
+#[test]
+fn aggregate_fixture_covers_struct_fields_and_array_parameters() {
+    let out = build("aggregates", include_str!("programs/aggregates.can"));
+    assert!(out.ok, "aggregate fixture failed: {:?}", out.diagnostics);
+    let layout = out.sema.as_ref().and_then(|sema| sema.structs.get("Sample")).expect("Sample layout");
+    assert_eq!(layout.members[0].offset, 0);
+    assert_eq!(layout.members[1].offset, 4);
+    assert_eq!(layout.size, 8);
+    let c = out.c.expect("C artifact");
+    assert!(c.contains("struct Sample"));
+    assert!(c.contains("int32_t *items"));
+    assert!(c.contains("struct Sample * update"));
+    let wasm = out.wasm.expect("wasm artifact");
+    assert!(wasm.exports.iter().any(|name| name == "sum"));
+    assert!(wasm.exports.iter().any(|name| name == "identity"));
+    assert!(wasm.exports.iter().any(|name| name == "update"));
+    assert!(wasm.layout.iter().any(|entry| entry.name == "state"));
+}
+
+#[test]
+fn md5_fixture_covers_multi_round_bitwise_compression() {
+    let source = include_str!("programs/md5.can");
+    let out = build("md5", source);
+    assert!(out.ok, "md5 fixture failed: {:?}", out.diagnostics);
+    let _c = out.c.expect("C artifact");
+    assert!(source.contains("900150983cd24fb0d6963f7d28e17f72"));
+    let wasm = out.wasm.expect("wasm artifact");
+    assert!(wasm.exports.iter().any(|name| name == "md5"));
+    assert!(wasm.wat.contains("i32.xor"));
+    assert!(wasm.wat.contains("i32.shl"));
+    assert!(wasm.wat.contains("i32.shr_s") || wasm.wat.contains("i32.shr_u"));
+}
+
+#[test]
+fn includes_are_resolved_relative_to_the_source_file() {
+    let root = std::env::temp_dir().join(format!("capl-include-{}", std::process::id()));
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(root.join("shared.can"), "long helper(long x) { return x * 2; }").unwrap();
+    let source = "includes { \"shared.can\" } on start { helper(2); }";
+    let out = compile(source, Options {
+        file_name: root.join("main.can").to_string_lossy().into_owned(),
+        backends: vec![BackendId::Wasm, BackendId::C, BackendId::Ast],
+        include_paths: Vec::new(),
+    });
+    let _ = std::fs::remove_dir_all(&root);
+    assert!(out.ok, "include fixture failed: {:?}", out.diagnostics);
+    assert!(out.wasm.expect("wasm artifact").exports.iter().any(|name| name == "helper"));
+}
+
+#[test]
+fn missing_include_is_a_parse_diagnostic() {
+    let root = std::env::temp_dir().join(format!("capl-missing-{}", std::process::id()));
+    std::fs::create_dir_all(&root).unwrap();
+    let out = compile("includes { \"does-not-exist.can\" } on start {}", Options {
+        file_name: root.join("main.can").to_string_lossy().into_owned(),
+        backends: vec![BackendId::Ast],
+        include_paths: Vec::new(),
+    });
+    let _ = std::fs::remove_dir_all(&root);
+    assert!(!out.ok);
+    assert!(out.diagnostics.iter().any(|d| d.message.contains("was not found")));
+}
+
+#[test]
+fn recursive_include_is_rejected_without_recursing_forever() {
+    let root = std::env::temp_dir().join(format!("capl-recursive-{}", std::process::id()));
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(root.join("a.can"), "includes { \"b.can\" }").unwrap();
+    std::fs::write(root.join("b.can"), "includes { \"a.can\" }").unwrap();
+    let out = compile("includes { \"a.can\" }", Options {
+        file_name: root.join("main.can").to_string_lossy().into_owned(),
+        backends: vec![BackendId::Ast],
+        include_paths: Vec::new(),
+    });
+    let _ = std::fs::remove_dir_all(&root);
+    assert!(!out.ok);
+    assert!(out.diagnostics.iter().any(|d| d.message.contains("recursive include")));
 }
 
 #[test]

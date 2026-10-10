@@ -59,6 +59,43 @@ variables are covered. `enum` declarations and enum constants are connected
 through the Rust parser, semantic pass, C backend, and WebAssembly backend;
 enum values are represented as integer constants.
 
+Named structures and named fields are also supported:
+
+```capl
+struct Sample {
+  long count;
+  byte flags[4];
+};
+
+variables { struct Sample state; }
+on start {
+  state.count = 1;
+  state.flags[0] = 0xAA;
+}
+```
+
+Structure layout is computed by the semantic pass. Arrays and structures at
+function boundaries use storage addresses in the WASM backend. The C backend
+uses array pointers and structure pointers for those boundaries; structure
+return values are returned through a pointer. This is the current playground
+ABI and is covered by the `aggregates.can` driver fixture.
+
+Array return types use the `long[] function(...)` form in the supported subset
+and follow the same address-based ABI:
+
+```capl
+long[] identity(long values[]) { return values; }
+```
+
+The native driver can expand relative includes before parsing:
+
+```capl
+includes { "shared.can" }
+```
+
+Include search paths are taken from `CAPL_INCLUDE_PATH`. Browser compilation
+does not resolve files because the browser compiler has no filesystem access.
+
 ## Event Handlers
 
 ```capl
@@ -122,7 +159,8 @@ When adding syntax:
 
 ## Explicit Non-Goals
 
-This project does not currently promise support for `struct` declarations,
-database signals, `$Signal`, test modules, the complete product API, every
-system-variable type, aggregate values passed or returned by value, or
-Vector-tool-specific extensions.
+This project does not currently promise support for anonymous or packed
+structures, database signals, `$Signal`, test modules, the complete product
+API, every system-variable type, or Vector-tool-specific extensions. Aggregate
+boundaries use the documented address ABI rather than claiming compatibility
+with every CAPL by-value rule.
