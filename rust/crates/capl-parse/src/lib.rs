@@ -8,7 +8,8 @@
 
 use capl_ast::*;
 use capl_diag::{DiagBag, Loc, Stage};
-use capl_lexer::{Lexer, TokKind, Token};
+pub mod lexer;
+pub use lexer::{Lexer, LexOptions, TokKind, Token, TYPE_KEYWORDS, KEYWORDS};
 
 const ASSIGN_OPS: &[&str] = &["=", "+=", "-=", "*=", "/=", "%=", "<<=", ">>=", "&=", "^=", "|="];
 
@@ -95,7 +96,7 @@ impl<'d> Parser<'d> {
 
     /* ── types ─────────────────────────────────────── */
     fn at_type(&self) -> bool {
-        self.cur().kind == TokKind::Keyword && capl_lexer::TYPE_KEYWORDS.contains(&self.cur().text.as_str())
+        self.cur().kind == TokKind::Keyword && TYPE_KEYWORDS.contains(&self.cur().text.as_str())
     }
     fn ty(&mut self) -> Ty {
         let t = self.bump();

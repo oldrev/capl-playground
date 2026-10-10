@@ -1,9 +1,0 @@
-[package]
-name = "capl-lexer"
-version.workspace = true
-edition.workspace = true
-license.workspace = true
-description = "Hand-written scanner for Vector CAPL; also usable standalone for editor highlighting"
-
-[dependencies]
-capl-diag.workspace = true

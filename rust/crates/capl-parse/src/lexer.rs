@@ -1,19 +1,3 @@
-//! `capl-lexer` — a hand-written scanner for Vector CAPL.
-//!
-//! Like DMD's `lexer.d` this is a plain state machine over bytes: no regular
-//! expressions, no allocations per token, and it can keep trivia so an editor
-//! can reuse it for syntax highlighting.
-//!
-//! ```no_run
-//! use capl_diag::DiagBag;
-//! use capl_lexer::{Lexer, TokKind};
-//!
-//! let mut bag = DiagBag::new();
-//! let toks = Lexer::new("on start { write(\"hi\"); }", &mut bag).collect_all();
-//! assert_eq!(toks[0].kind, TokKind::Keyword);
-//! ```
-#![forbid(unsafe_code)]
-
 use capl_diag::{DiagBag, Loc, Stage};
 
 pub const KEYWORDS: &[&str] = &[

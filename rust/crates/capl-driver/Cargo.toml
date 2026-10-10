@@ -15,7 +15,6 @@ path = "src/main.rs"
 
 [dependencies]
 capl-diag.workspace = true
-capl-lexer.workspace = true
 capl-ast.workspace = true
 capl-parse.workspace = true
 capl-sema.workspace = true

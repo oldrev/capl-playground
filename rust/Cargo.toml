@@ -2,7 +2,6 @@
 resolver = "2"
 members = [
     "crates/capl-diag",
-    "crates/capl-lexer",
     "crates/capl-ast",
     "crates/capl-parse",
     "crates/capl-sema",
@@ -21,7 +20,6 @@ description = "A modular compiler for Vector CAPL"
 
 [workspace.dependencies]
 capl-diag = { path = "crates/capl-diag", version = "0.4.0" }
-capl-lexer = { path = "crates/capl-lexer", version = "0.4.0" }
 capl-ast = { path = "crates/capl-ast", version = "0.4.0" }
 capl-parse = { path = "crates/capl-parse", version = "0.4.0" }
 capl-sema = { path = "crates/capl-sema", version = "0.4.0" }

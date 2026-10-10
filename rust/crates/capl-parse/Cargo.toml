@@ -7,5 +7,4 @@ description = "Recursive-descent parser for Vector CAPL"
 
 [dependencies]
 capl-diag.workspace = true
-capl-lexer.workspace = true
 capl-ast.workspace = true

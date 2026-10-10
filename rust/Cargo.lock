@@ -51,16 +51,8 @@ dependencies = [
  "capl-codegen-c",
  "capl-codegen-wasm",
  "capl-diag",
- "capl-lexer",
  "capl-parse",
  "capl-sema",
-]
-
-[[package]]
-name = "capl-lexer"
-version = "0.4.0"
-dependencies = [
- "capl-diag",
 ]
 
 [[package]]
@@ -69,7 +61,6 @@ version = "0.4.0"
 dependencies = [
  "capl-ast",
  "capl-diag",
- "capl-lexer",
 ]
 
 [[package]]
@@ -87,7 +78,7 @@ dependencies = [
  "capl-ast",
  "capl-diag",
  "capl-driver",
- "capl-lexer",
+ "capl-parse",
  "console_error_panic_hook",
  "js-sys",
  "serde",

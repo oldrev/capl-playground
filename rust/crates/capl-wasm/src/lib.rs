@@ -128,7 +128,7 @@ pub fn compile(src: &str, backends: &str) -> Result<JsValue, JsValue> {
 
     let lex_start = js_sys::Date::now();
     let mut lex_diags = capl_diag::DiagBag::new();
-    let token_count = capl_lexer::Lexer::new(src, &mut lex_diags).collect_all().len();
+    let token_count = capl_parse::Lexer::new(src, &mut lex_diags).collect_all().len();
     let lex_ms = js_sys::Date::now() - lex_start;
     let out = compile_impl(src, Options { file_name: "source.can".into(), backends });
 
