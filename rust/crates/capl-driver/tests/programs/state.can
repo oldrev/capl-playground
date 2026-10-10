@@ -1,0 +1,23 @@
+variables {
+  const int IDLE = 0;
+  const int RUNNING = 1;
+  const int FAULT = 2;
+  int state = IDLE;
+  msTimer watchdog;
+  long ticks = 0;
+}
+
+void enter(long next) {
+  state = next;
+  switch (next) {
+    case 0: cancelTimer(watchdog); break;
+    case 1: setTimerCyclic(watchdog, 250); break;
+    case 2: cancelTimer(watchdog); break;
+  }
+}
+
+on start { enter(IDLE); }
+on timer watchdog { ticks++; if (ticks > 3) enter(FAULT); }
+on key 'g' { if (state != FAULT) enter(RUNNING); }
+on key 's' { enter(IDLE); }
+on key 'f' { enter(FAULT); }

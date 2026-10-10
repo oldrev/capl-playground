@@ -1,0 +1,7 @@
+variables {
+  long counter = ;
+}
+
+on start {
+  missing_function(1);
+}

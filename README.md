@@ -63,6 +63,29 @@ cargo run -p capl-driver -- node.can --emit=wasm -o node.wasm
 cargo test --workspace
 ```
 
+### Rust test coverage and CAPL fixtures
+
+The compiler has driver-level integration tests under
+`rust/crates/capl-driver/tests/`. They compile real CAPL programs through the
+Rust lexer, parser, semantic pass, C backend, and WebAssembly backend. The
+fixtures cover timers and handlers, cyclic CAN messages, arrays and functions,
+64-bit and floating-point expressions, plus invalid input diagnostics.
+
+Install [`cargo-llvm-cov`](https://github.com/taiki-e/cargo-llvm-cov) once, then
+run:
+
+```bash
+cd rust
+cargo llvm-cov --workspace --all-features --lcov --output-path coverage/lcov.info
+cargo llvm-cov --workspace --all-features --html --open
+```
+
+On Windows, `./rust/coverage.ps1` runs the LCOV command and prints the summary.
+CI installs the same tool and produces `rust/coverage/lcov.info` during the
+Rust test job, then uploads it as the `rust-coverage` artifact. The native
+coverage command intentionally measures the reusable compiler crates; the
+`capl-wasm` facade is exercised by the browser build and runtime smoke tests.
+
 ## The generated module
 
 The wasm backend writes the binary by hand — LEB128, sections, a code builder

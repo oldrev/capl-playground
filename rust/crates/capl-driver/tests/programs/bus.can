@@ -1,0 +1,25 @@
+variables {
+  message 0x100 engineMsg;
+  msTimer txTimer;
+  long txCount = 0;
+  word rpm = 800;
+}
+
+on start {
+  engineMsg.dlc = 8;
+  setTimerCyclic(txTimer, 200);
+}
+
+on timer txTimer {
+  txCount++;
+  rpm = rpm + 125;
+  engineMsg.byte(0) = (rpm >> 8) & 0xFF;
+  engineMsg.byte(1) = rpm & 0xFF;
+  output(engineMsg);
+}
+
+on message 0x100 {
+  word value;
+  value = (this.byte(0) << 8) | this.byte(1);
+  write("rpm=%d", value);
+}

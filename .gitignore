@@ -15,6 +15,7 @@ public/capl/
 
 # Rust build output
 target/
+coverage/
 
 # Logs
 *.log

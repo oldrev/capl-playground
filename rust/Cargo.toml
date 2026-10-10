@@ -37,3 +37,8 @@ lto = true
 codegen-units = 1
 panic = "abort"
 strip = true
+
+[workspace.metadata.coverage]
+tool = "cargo-llvm-cov"
+command = "cargo llvm-cov --workspace --all-features --lcov --output-path coverage/lcov.info"
+html = "cargo llvm-cov --workspace --all-features --html --open"

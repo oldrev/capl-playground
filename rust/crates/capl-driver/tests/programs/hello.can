@@ -1,0 +1,14 @@
+variables {
+  msTimer tick;
+  int counter = 0;
+  char greeting[32] = "Hello from CAPL";
+}
+
+on preStart { write("preStart"); }
+on start { write("%s", greeting); setTimer(tick, 100); }
+on timer tick {
+  counter++;
+  write("tick %d at %d", counter, timeNow());
+  if (counter < 3) setTimer(tick, 100);
+}
+on key 'r' { counter = 0; }

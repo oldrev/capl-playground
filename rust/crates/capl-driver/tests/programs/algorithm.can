@@ -1,0 +1,18 @@
+variables {
+  long data[4] = { 8, 3, 5, 1 };
+}
+
+long fib(long n) {
+  if (n < 2) return n;
+  return fib(n - 1) + fib(n - 2);
+}
+
+on start {
+  int64 big = 1;
+  double x = 2.0;
+  long i;
+  for (i = 0; i < 4; i++) data[i] = data[i] * 2;
+  for (i = 0; i < 10; i++) big = big * 3;
+  x = sqrt(x);
+  write("fib=%d big=%d root=%.3f pow=%.2f", fib(8), big, x, pow(x, 8.0));
+}
