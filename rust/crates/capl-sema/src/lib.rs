@@ -240,7 +240,7 @@ impl<'d> Sema<'d> {
     fn declare_var(&mut self, v: &mut VarDecl, storage: Storage) {
         let mut ty = v.decl_ty.clone();
         if v.is_array {
-            let len = match (&v.array_len, &v.init) {
+            let len = match (v.dims.first(), &v.init) {
                 (Some(e), _) => self.const_fold(e).unwrap_or(0).max(0) as u32,
                 (None, Some(Expr { kind: ExprKind::InitList { items }, .. })) => items.len() as u32,
                 (None, Some(Expr { kind: ExprKind::StrLit { value }, .. })) => value.len() as u32 + 1,

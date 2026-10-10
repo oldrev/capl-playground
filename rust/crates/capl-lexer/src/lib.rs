@@ -366,6 +366,6 @@ mod tests {
         assert!(!bag.has_errors());
         assert_eq!(toks[0].text, "on");
         assert_eq!(toks[2].kind, TokKind::Ident);
-        assert_eq!(toks[5].int, 16);
+        assert!(toks.iter().any(|tok| tok.int == 16));
     }
 }

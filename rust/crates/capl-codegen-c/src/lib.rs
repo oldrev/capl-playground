@@ -159,7 +159,7 @@ impl<'s> CBackend<'s> {
                 for d in decls {
                     let init = d.init.as_ref().map(|i| format!(" = {}", self.expr(i))).unwrap_or_default();
                     if d.is_array {
-                        self.line(&format!("{} {}[{}]{};", c_type(&d.decl_ty), d.name, d.array_len.as_ref().map(|_| "").unwrap_or(""), init));
+                        self.line(&format!("{} {}[]{};", c_type(&d.decl_ty), d.name, init));
                     } else {
                         self.line(&format!("{} {}{};", c_type(&d.decl_ty), d.name, init));
                     }

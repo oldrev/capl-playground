@@ -268,11 +268,11 @@ impl<'d> Parser<'d> {
             let d_start = self.cur().loc;
             let name = self.expect_ident();
             let mut is_array = false;
-            let mut array_len = None;
+            let mut dims = Vec::new();
             if self.eat_punct("[") {
                 is_array = true;
                 if !self.cur().is_punct("]") {
-                    array_len = Some(self.assign_expr());
+                    dims.push(self.assign_expr());
                 }
                 self.expect("]");
             }
@@ -284,7 +284,7 @@ impl<'d> Parser<'d> {
             out.push(VarDecl {
                 name,
                 decl_ty: base.clone(),
-                array_len,
+                dims,
                 is_array,
                 is_const,
                 init,
