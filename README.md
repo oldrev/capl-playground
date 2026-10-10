@@ -3,7 +3,7 @@
 [![Deploy to GitHub Pages](https://github.com/oldrev/capl-playground/actions/workflows/deploy-pages.yml/badge.svg)](https://github.com/oldrev/capl-playground/actions/workflows/deploy-pages.yml)
 [![Rust tests](https://img.shields.io/badge/tests-cargo%20test%20--workspace-orange?logo=rust)](https://github.com/oldrev/capl-playground/actions)
 [![Coverage](https://img.shields.io/badge/coverage-LCOV-informational)](https://github.com/oldrev/capl-playground/actions)
-[![License](https://img.shields.io/badge/license-see%20repository-blue)](https://github.com/oldrev/capl-playground)
+[![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue)](LICENSE-MIT)
 
 An online playground for **Vector CAPL** (the CANoe/CANalyzer node language).
 Write CAPL in the browser, watch it go through a real compiler pipeline, inspect
@@ -197,6 +197,20 @@ Use of this project is at your own risk. You are responsible for checking the
 licenses and terms that apply to any source code, specifications, examples,
 trademarks, reverse-engineering activity, and deployment environment involved
 in your use of it. This notice is informational and is not legal advice.
+
+## License
+
+Copyright (c) 2026 Wei Li
+
+This project is dual-licensed under either of the following licenses, at your
+option:
+
+* [MIT License](LICENSE-MIT)
+* [Apache License, Version 2.0](LICENSE-APACHE)
+
+Unless you explicitly state otherwise, any contribution intentionally submitted
+for inclusion in this project shall be dual-licensed as above, without any
+additional terms or conditions.
 
 ## Compiler architecture reference
 

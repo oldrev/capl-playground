@@ -1,6 +1,7 @@
 use capl_diag::Stage;
 use capl_ast::Decl;
 use capl_driver::{compile, BackendId, Options};
+use wasmi::{core::ValueType, Engine, FuncType, Linker, Module, Store, Value};
 
 const PROGRAMS: &[(&str, &str)] = &[
     ("hello", include_str!("programs/hello.can")),
@@ -163,6 +164,41 @@ fn md5_fixture_covers_multi_round_bitwise_compression() {
     assert!(wasm.wat.contains("i32.xor"));
     assert!(wasm.wat.contains("i32.shl"));
     assert!(wasm.wat.contains("i32.shr_s") || wasm.wat.contains("i32.shr_u"));
+
+    let engine = Engine::default();
+    let module = Module::new(&engine, &mut &wasm.bytes[..]).expect("generated wasm is valid");
+    let mut store = Store::new(&engine, ());
+    let mut linker = Linker::new(&engine);
+    linker.func_wrap("capl", "write", |_fmt: i32, _count: i32, _base: i32| {}).unwrap();
+    linker.func_wrap("capl", "setTimer", |_timer: i32, _ms: i32| {}).unwrap();
+    linker.func_wrap("capl", "setTimerCyclic", |_timer: i32, _ms: i32| {}).unwrap();
+    linker.func_wrap("capl", "cancelTimer", |_timer: i32| {}).unwrap();
+    linker.func_wrap("capl", "output", |_message: i32| {}).unwrap();
+    linker.func_wrap("capl", "timeNow", || 0i32).unwrap();
+    linker.func_wrap("capl", "random", |_n: i32| 0i32).unwrap();
+    linker.func_wrap("capl", "strlen", |_ptr: i32| 0i32).unwrap();
+    linker.func_new(
+        "capl", "pow",
+        FuncType::new([ValueType::F64, ValueType::F64], [ValueType::F64]),
+        |_caller, _params, results| { results[0] = Value::F64(0.0.into()); Ok(()) },
+    ).unwrap();
+    for name in ["sin", "cos"] {
+        linker.func_new(
+            "capl", name,
+            FuncType::new([ValueType::F64], [ValueType::F64]),
+            |_caller, _params, results| { results[0] = Value::F64(0.0.into()); Ok(()) },
+        ).unwrap();
+    }
+    linker.func_wrap("capl", "canOnline", || {}).unwrap();
+    linker.func_wrap("capl", "canOffline", || {}).unwrap();
+    linker.func_wrap("capl", "stopMeasurement", || {}).unwrap();
+    let instance = linker.instantiate(&mut store, &module).unwrap().start(&mut store).unwrap();
+    let md5 = instance.get_typed_func::<i32, i32>(&store, "md5").unwrap();
+    let expected = [0x98500190u32, 0xB04FD23Cu32, 0x7D3F96D6u32, 0x727FE128u32];
+    for (index, expected_word) in expected.into_iter().enumerate() {
+        let actual = md5.call(&mut store, index as i32).unwrap() as u32;
+        assert_eq!(actual, expected_word, "MD5 word {index} mismatch");
+    }
 }
 
 #[test]

@@ -3,7 +3,7 @@
 [![部署到 GitHub Pages](https://github.com/oldrev/capl-playground/actions/workflows/deploy-pages.yml/badge.svg)](https://github.com/oldrev/capl-playground/actions/workflows/deploy-pages.yml)
 [![Rust 测试](https://img.shields.io/badge/tests-cargo%20test%20--workspace-orange?logo=rust)](https://github.com/oldrev/capl-playground/actions)
 [![覆盖率](https://img.shields.io/badge/coverage-LCOV-informational)](https://github.com/oldrev/capl-playground/actions)
-[![许可证](https://img.shields.io/badge/license-见仓库-blue)](https://github.com/oldrev/capl-playground)
+[![许可证：MIT 或 Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue)](LICENSE-MIT)
 
 一个在线的 **Vector CAPL**（CANoe/CANalyzer 节点语言）开发沙盒。
 你可以在浏览器中编写 CAPL，观察它经过真正的编译流程，查看 JSON 格式的 AST、生成的 C 代码和 WebAssembly，然后在一个包含虚拟时间、定时器、CAN 总线和按键事件的微型测量环境中运行 WebAssembly。
@@ -111,6 +111,17 @@ CAPL Playground 是独立的实验性兼容性和教学项目。它不受 Vector
 本项目不包含 Vector 软件、专有数据库、文档或测试资产，也不声称实现官方 CAPL 工具链。
 
 使用本项目的风险由你自行承担。你应自行确认适用于所使用源代码、规范、示例、商标、逆向工程活动和部署环境的许可证及条款。本声明仅供参考，不构成法律建议。
+
+## 许可证
+
+版权所有 (c) 2026 Wei Li
+
+本项目采用 MIT 与 Apache License 2.0 双重许可。你可以根据自己的需要，选择以下任一许可证使用本项目：
+
+* [MIT 许可证](LICENSE-MIT)
+* [Apache License 2.0](LICENSE-APACHE)
+
+除非你另有明确声明，任何有意提交并纳入本项目的贡献也将按照上述双重许可发布，且不附加其他条款或条件。
 
 ## 编译器架构参考
 

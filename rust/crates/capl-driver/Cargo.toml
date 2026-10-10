@@ -25,3 +25,6 @@ capl-codegen-c = { workspace = true, optional = true }
 default = ["wasm-backend", "c-backend"]
 wasm-backend = ["dep:capl-codegen-wasm"]
 c-backend = ["dep:capl-codegen-c"]
+
+[dev-dependencies]
+wasmi.workspace = true
