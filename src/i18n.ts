@@ -5,7 +5,7 @@
 export type Lang = "en" | "zh";
 
 const en = {
-  title: "CAPL Learning Lab",
+  title: "CAPL Playground",
   tagline: "Learn CAPL. Run experiments.",
   core: "Core",
   coreRust: "capl-wasm (Rust)",
@@ -105,7 +105,7 @@ const en = {
 type Dict = typeof en;
 
 const zh: Dict = {
-  title: "在线学习 CAPL 与实验",
+  title: "CAPL 语言游乐场",
   tagline: "学习 CAPL，在线实验",
   core: "内核",
   coreRust: "capl-wasm（Rust）",
