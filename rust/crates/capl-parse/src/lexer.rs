@@ -1,10 +1,41 @@
 use capl_diag::{DiagBag, Loc, Stage};
 
 pub const KEYWORDS: &[&str] = &[
-    "variables", "includes", "on", "start", "preStart", "stopMeasurement", "preStop", "timer",
-    "msTimer", "message", "key", "sysvar", "envVar", "errorFrame", "busOff", "signal", "this",
-    "if", "else", "while", "for", "do", "switch", "case", "default", "break", "continue",
-    "return", "const", "enum", "struct", "export", "static", "testcase", "testfunction",
+    "variables",
+    "includes",
+    "on",
+    "start",
+    "preStart",
+    "stopMeasurement",
+    "preStop",
+    "timer",
+    "msTimer",
+    "message",
+    "key",
+    "sysvar",
+    "envVar",
+    "errorFrame",
+    "busOff",
+    "signal",
+    "this",
+    "if",
+    "else",
+    "while",
+    "for",
+    "do",
+    "switch",
+    "case",
+    "default",
+    "break",
+    "continue",
+    "return",
+    "const",
+    "enum",
+    "struct",
+    "export",
+    "static",
+    "testcase",
+    "testfunction",
 ];
 
 pub const TYPE_KEYWORDS: &[&str] = &[
@@ -73,7 +104,15 @@ impl<'a, 'd> Lexer<'a, 'd> {
     }
 
     pub fn with_options(src: &'a str, diags: &'d mut DiagBag, opts: LexOptions) -> Self {
-        Self { src: src.as_bytes(), raw: src, i: 0, line: 1, line_start: 0, diags, opts }
+        Self {
+            src: src.as_bytes(),
+            raw: src,
+            i: 0,
+            line: 1,
+            line_start: 0,
+            diags,
+            opts,
+        }
     }
 
     pub fn collect_all(mut self) -> Vec<Token> {
@@ -155,7 +194,8 @@ impl<'a, 'd> Lexer<'a, 'd> {
             }
             if self.i >= self.src.len() {
                 let loc = self.loc_from(start, line, col);
-                self.diags.error(Stage::Lex, loc, "unterminated block comment");
+                self.diags
+                    .error(Stage::Lex, loc, "unterminated block comment");
             } else {
                 self.i += 2;
             }
@@ -171,7 +211,9 @@ impl<'a, 'd> Lexer<'a, 'd> {
         // identifiers ----------------------------------------------------
         if c.is_ascii_alphabetic() || c == b'_' || c == b'@' {
             while self.i < self.src.len()
-                && (self.src[self.i].is_ascii_alphanumeric() || self.src[self.i] == b'_' || self.src[self.i] == b'@')
+                && (self.src[self.i].is_ascii_alphanumeric()
+                    || self.src[self.i] == b'_'
+                    || self.src[self.i] == b'@')
             {
                 self.i += 1;
             }
@@ -202,7 +244,8 @@ impl<'a, 'd> Lexer<'a, 'd> {
             };
             if self.peek(0) != b'\'' {
                 let loc = self.loc_from(start, line, col);
-                self.diags.error(Stage::Lex, loc, "unterminated character literal");
+                self.diags
+                    .error(Stage::Lex, loc, "unterminated character literal");
             } else {
                 self.i += 1;
             }
@@ -218,7 +261,8 @@ impl<'a, 'd> Lexer<'a, 'd> {
             while self.i < self.src.len() && self.src[self.i] != b'"' {
                 if self.src[self.i] == b'\n' {
                     let loc = self.loc_from(start, line, col);
-                    self.diags.error(Stage::Lex, loc, "unterminated string literal");
+                    self.diags
+                        .error(Stage::Lex, loc, "unterminated string literal");
                     break;
                 }
                 if self.src[self.i] == b'\\' {
@@ -247,7 +291,11 @@ impl<'a, 'd> Lexer<'a, 'd> {
 
         self.i += 1;
         let loc = self.loc_from(start, line, col);
-        self.diags.error(Stage::Lex, loc, format!("unexpected character '{}'", c as char));
+        self.diags.error(
+            Stage::Lex,
+            loc,
+            format!("unexpected character '{}'", c as char),
+        );
         None
     }
 
@@ -286,7 +334,11 @@ impl<'a, 'd> Lexer<'a, 'd> {
             }
             other => {
                 let loc = self.loc_from(start, line, col);
-                self.diags.warn(Stage::Lex, loc, format!("unknown escape sequence '\\{}'", other as char));
+                self.diags.warn(
+                    Stage::Lex,
+                    loc,
+                    format!("unknown escape sequence '\\{}'", other as char),
+                );
                 other as i64
             }
         }
@@ -329,7 +381,16 @@ impl<'a, 'd> Lexer<'a, 'd> {
             }
         }
         let text = &self.raw[start..self.i];
-        let mut t = self.token(if is_float { TokKind::Float } else { TokKind::Int }, start, line, col);
+        let mut t = self.token(
+            if is_float {
+                TokKind::Float
+            } else {
+                TokKind::Int
+            },
+            start,
+            line,
+            col,
+        );
         if is_float {
             t.float = text.parse().unwrap_or(0.0);
         } else {

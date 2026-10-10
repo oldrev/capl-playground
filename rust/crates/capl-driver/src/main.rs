@@ -51,8 +51,18 @@ fn main() -> ExitCode {
         "wasm" | "wat" => vec![BackendId::Wasm],
         _ => vec![],
     };
-    let include_paths = std::env::var("CAPL_INCLUDE_PATH").ok().into_iter().collect();
-    let out = compile(&src, Options { file_name: path.clone(), backends, include_paths });
+    let include_paths = std::env::var("CAPL_INCLUDE_PATH")
+        .ok()
+        .into_iter()
+        .collect();
+    let out = compile(
+        &src,
+        Options {
+            file_name: path.clone(),
+            backends,
+            include_paths,
+        },
+    );
 
     for d in &out.diagnostics {
         eprintln!("{d}");
@@ -81,8 +91,21 @@ fn main() -> ExitCode {
     let res = match emit.as_str() {
         "ast" => write(out.ast_json.as_bytes(), "-"),
         "c" => write(out.c.unwrap_or_default().as_bytes(), "-"),
-        "wat" => write(out.wasm.as_ref().map(|w| w.wat.clone()).unwrap_or_default().as_bytes(), "-"),
-        "wasm" => write(&out.wasm.as_ref().map(|w| w.bytes.clone()).unwrap_or_default(), "a.wasm"),
+        "wat" => write(
+            out.wasm
+                .as_ref()
+                .map(|w| w.wat.clone())
+                .unwrap_or_default()
+                .as_bytes(),
+            "-",
+        ),
+        "wasm" => write(
+            &out.wasm
+                .as_ref()
+                .map(|w| w.bytes.clone())
+                .unwrap_or_default(),
+            "a.wasm",
+        ),
         _ => Ok(()),
     };
     if let Err(e) = res {

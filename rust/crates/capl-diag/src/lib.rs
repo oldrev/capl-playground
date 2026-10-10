@@ -18,11 +18,19 @@ pub struct Loc {
 
 impl Loc {
     pub const fn new(line: u32, col: u32, pos: u32, end: u32) -> Self {
-        Self { line, col, pos, end }
+        Self {
+            line,
+            col,
+            pos,
+            end,
+        }
     }
     /// Span covering `self` through the end of `other`.
     pub fn to(self, other: Loc) -> Loc {
-        Loc { end: other.end, ..self }
+        Loc {
+            end: other.end,
+            ..self
+        }
     }
 }
 
@@ -86,15 +94,30 @@ impl DiagBag {
 
     pub fn error(&mut self, stage: Stage, loc: Loc, message: impl Into<String>) {
         self.errors += 1;
-        self.items.push(Diagnostic { severity: Severity::Error, stage, loc, message: message.into() });
+        self.items.push(Diagnostic {
+            severity: Severity::Error,
+            stage,
+            loc,
+            message: message.into(),
+        });
     }
 
     pub fn warn(&mut self, stage: Stage, loc: Loc, message: impl Into<String>) {
-        self.items.push(Diagnostic { severity: Severity::Warning, stage, loc, message: message.into() });
+        self.items.push(Diagnostic {
+            severity: Severity::Warning,
+            stage,
+            loc,
+            message: message.into(),
+        });
     }
 
     pub fn note(&mut self, stage: Stage, loc: Loc, message: impl Into<String>) {
-        self.items.push(Diagnostic { severity: Severity::Note, stage, loc, message: message.into() });
+        self.items.push(Diagnostic {
+            severity: Severity::Note,
+            stage,
+            loc,
+            message: message.into(),
+        });
     }
 
     pub fn items(&self) -> &[Diagnostic] {
@@ -123,6 +146,9 @@ mod tests {
         bag.error(Stage::Parse, Loc::new(3, 5, 10, 11), "expected ';'");
         assert_eq!(bag.error_count(), 1);
         assert_eq!(bag.items().len(), 2);
-        assert_eq!(bag.items()[1].to_string(), "source.can(3,5): Error: expected ';'");
+        assert_eq!(
+            bag.items()[1].to_string(),
+            "source.can(3,5): Error: expected ';'"
+        );
     }
 }

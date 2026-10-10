@@ -61,16 +61,44 @@ pub struct Ty {
 
 impl Ty {
     pub const fn scalar(kind: TyKind) -> Self {
-        Self { kind, name: None, size: None, elem: None, len: None, msg_id: None }
+        Self {
+            kind,
+            name: None,
+            size: None,
+            elem: None,
+            len: None,
+            msg_id: None,
+        }
     }
     pub fn array(elem: Ty, len: u32) -> Self {
-        Self { kind: TyKind::Array, name: None, size: None, elem: Some(Box::new(elem)), len: Some(len), msg_id: None }
+        Self {
+            kind: TyKind::Array,
+            name: None,
+            size: None,
+            elem: Some(Box::new(elem)),
+            len: Some(len),
+            msg_id: None,
+        }
     }
     pub fn named_struct(name: impl Into<String>) -> Self {
-        Self { kind: TyKind::Struct, name: Some(name.into()), size: None, elem: None, len: None, msg_id: None }
+        Self {
+            kind: TyKind::Struct,
+            name: Some(name.into()),
+            size: None,
+            elem: None,
+            len: None,
+            msg_id: None,
+        }
     }
     pub fn named_enum(name: impl Into<String>) -> Self {
-        Self { kind: TyKind::Enum, name: Some(name.into()), size: Some(4), elem: None, len: None, msg_id: None }
+        Self {
+            kind: TyKind::Enum,
+            name: Some(name.into()),
+            size: Some(4),
+            elem: None,
+            len: None,
+            msg_id: None,
+        }
     }
     /// Storage width in bytes, following CAPL (int = 2, long = 4, float = 8).
     pub fn size_of(&self) -> u32 {
@@ -92,10 +120,16 @@ impl Ty {
         matches!(self.kind, TyKind::Int64 | TyKind::Qword)
     }
     pub fn is_unsigned(&self) -> bool {
-        matches!(self.kind, TyKind::Byte | TyKind::Word | TyKind::Dword | TyKind::Qword)
+        matches!(
+            self.kind,
+            TyKind::Byte | TyKind::Word | TyKind::Dword | TyKind::Qword
+        )
     }
     pub fn is_scalar(&self) -> bool {
-        !matches!(self.kind, TyKind::Void | TyKind::Array | TyKind::Message | TyKind::Struct | TyKind::Error)
+        !matches!(
+            self.kind,
+            TyKind::Void | TyKind::Array | TyKind::Message | TyKind::Struct | TyKind::Error
+        )
     }
 }
 
@@ -105,20 +139,59 @@ impl Ty {
 #[cfg_attr(feature = "json", derive(Serialize))]
 #[cfg_attr(feature = "json", serde(tag = "kind"))]
 pub enum ExprKind {
-    IntLit { value: i64 },
-    FloatLit { value: f64 },
-    CharLit { value: i64 },
-    StrLit { value: String },
-    Ident { name: String, sym: Option<SymId> },
+    IntLit {
+        value: i64,
+    },
+    FloatLit {
+        value: f64,
+    },
+    CharLit {
+        value: i64,
+    },
+    StrLit {
+        value: String,
+    },
+    Ident {
+        name: String,
+        sym: Option<SymId>,
+    },
     This,
-    Unary { op: String, operand: Box<Expr>, postfix: bool },
-    Binary { op: String, left: Box<Expr>, right: Box<Expr> },
-    Assign { op: String, target: Box<Expr>, value: Box<Expr> },
-    Cond { cond: Box<Expr>, then: Box<Expr>, otherwise: Box<Expr> },
-    Call { callee: Box<Expr>, args: Vec<Expr>, sym: Option<SymId> },
-    Index { base: Box<Expr>, index: Box<Expr> },
-    Member { base: Box<Expr>, name: String },
-    InitList { items: Vec<Expr> },
+    Unary {
+        op: String,
+        operand: Box<Expr>,
+        postfix: bool,
+    },
+    Binary {
+        op: String,
+        left: Box<Expr>,
+        right: Box<Expr>,
+    },
+    Assign {
+        op: String,
+        target: Box<Expr>,
+        value: Box<Expr>,
+    },
+    Cond {
+        cond: Box<Expr>,
+        then: Box<Expr>,
+        otherwise: Box<Expr>,
+    },
+    Call {
+        callee: Box<Expr>,
+        args: Vec<Expr>,
+        sym: Option<SymId>,
+    },
+    Index {
+        base: Box<Expr>,
+        index: Box<Expr>,
+    },
+    Member {
+        base: Box<Expr>,
+        name: String,
+    },
+    InitList {
+        items: Vec<Expr>,
+    },
 }
 
 ast_node! {
@@ -132,7 +205,11 @@ ast_node! {
 
 impl Expr {
     pub fn new(kind: ExprKind, loc: Loc) -> Self {
-        Self { kind, loc, ty: None }
+        Self {
+            kind,
+            loc,
+            ty: None,
+        }
     }
 }
 
@@ -142,17 +219,43 @@ impl Expr {
 #[cfg_attr(feature = "json", derive(Serialize))]
 #[cfg_attr(feature = "json", serde(tag = "kind"))]
 pub enum StmtKind {
-    Block { stmts: Vec<Stmt> },
-    Expr { expr: Expr },
-    Decl { decls: Vec<VarDecl> },
-    If { cond: Expr, then: Box<Stmt>, otherwise: Option<Box<Stmt>> },
-    While { cond: Expr, body: Box<Stmt> },
-    DoWhile { body: Box<Stmt>, cond: Expr },
-    For { init: Option<Box<Stmt>>, cond: Option<Expr>, step: Option<Expr>, body: Box<Stmt> },
-    Switch { disc: Expr, clauses: Vec<SwitchClause> },
+    Block {
+        stmts: Vec<Stmt>,
+    },
+    Expr {
+        expr: Expr,
+    },
+    Decl {
+        decls: Vec<VarDecl>,
+    },
+    If {
+        cond: Expr,
+        then: Box<Stmt>,
+        otherwise: Option<Box<Stmt>>,
+    },
+    While {
+        cond: Expr,
+        body: Box<Stmt>,
+    },
+    DoWhile {
+        body: Box<Stmt>,
+        cond: Expr,
+    },
+    For {
+        init: Option<Box<Stmt>>,
+        cond: Option<Expr>,
+        step: Option<Expr>,
+        body: Box<Stmt>,
+    },
+    Switch {
+        disc: Expr,
+        clauses: Vec<SwitchClause>,
+    },
     Break,
     Continue,
-    Return { expr: Option<Expr> },
+    Return {
+        expr: Option<Expr>,
+    },
     Empty,
 }
 
@@ -273,11 +376,25 @@ pub enum EventSpec {
     PreStop,
     ErrorFrame,
     BusOff,
-    Timer { name: String },
-    Message { id: Option<u32>, name: Option<String>, channel: Option<u8>, wildcard: bool },
-    Key { key: Option<char>, wildcard: bool },
-    SysVar { name: String },
-    EnvVar { name: String },
+    Timer {
+        name: String,
+    },
+    Message {
+        id: Option<u32>,
+        name: Option<String>,
+        channel: Option<u8>,
+        wildcard: bool,
+    },
+    Key {
+        key: Option<char>,
+        wildcard: bool,
+    },
+    SysVar {
+        name: String,
+    },
+    EnvVar {
+        name: String,
+    },
 }
 
 impl EventSpec {
@@ -291,13 +408,18 @@ impl EventSpec {
             EventSpec::ErrorFrame => "on_errorFrame".into(),
             EventSpec::BusOff => "on_busOff".into(),
             EventSpec::Timer { name } => format!("on_timer_{name}"),
-            EventSpec::Message { id, name, wildcard, .. } => {
+            EventSpec::Message {
+                id, name, wildcard, ..
+            } => {
                 if *wildcard {
                     "on_message_any".into()
                 } else if let Some(id) = id {
                     format!("on_message_0x{id:x}")
                 } else {
-                    format!("on_message_{}", name.clone().unwrap_or_else(|| "anon".into()))
+                    format!(
+                        "on_message_{}",
+                        name.clone().unwrap_or_else(|| "anon".into())
+                    )
                 }
             }
             EventSpec::Key { key, wildcard } => {
@@ -395,8 +517,15 @@ pub fn walk_stmt<V: Visitor + ?Sized>(v: &mut V, s: &Stmt) {
     match &s.kind {
         StmtKind::Block { stmts } => stmts.iter().for_each(|s| v.visit_stmt(s)),
         StmtKind::Expr { expr } => v.visit_expr(expr),
-        StmtKind::Decl { decls } => decls.iter().filter_map(|d| d.init.as_ref()).for_each(|e| v.visit_expr(e)),
-        StmtKind::If { cond, then, otherwise } => {
+        StmtKind::Decl { decls } => decls
+            .iter()
+            .filter_map(|d| d.init.as_ref())
+            .for_each(|e| v.visit_expr(e)),
+        StmtKind::If {
+            cond,
+            then,
+            otherwise,
+        } => {
             v.visit_expr(cond);
             v.visit_stmt(then);
             if let Some(o) = otherwise {
@@ -411,7 +540,12 @@ pub fn walk_stmt<V: Visitor + ?Sized>(v: &mut V, s: &Stmt) {
             v.visit_stmt(body);
             v.visit_expr(cond);
         }
-        StmtKind::For { init, cond, step, body } => {
+        StmtKind::For {
+            init,
+            cond,
+            step,
+            body,
+        } => {
             if let Some(i) = init {
                 v.visit_stmt(i);
             }
@@ -448,7 +582,11 @@ pub fn walk_expr<V: Visitor + ?Sized>(v: &mut V, e: &Expr) {
             v.visit_expr(target);
             v.visit_expr(value);
         }
-        ExprKind::Cond { cond, then, otherwise } => {
+        ExprKind::Cond {
+            cond,
+            then,
+            otherwise,
+        } => {
             v.visit_expr(cond);
             v.visit_expr(then);
             v.visit_expr(otherwise);

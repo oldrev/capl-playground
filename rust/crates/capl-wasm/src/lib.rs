@@ -128,28 +128,85 @@ pub fn compile(src: &str, backends: &str) -> Result<JsValue, JsValue> {
 
     let lex_start = js_sys::Date::now();
     let mut lex_diags = capl_diag::DiagBag::new();
-    let token_count = capl_parse::Lexer::new(src, &mut lex_diags).collect_all().len();
+    let token_count = capl_parse::Lexer::new(src, &mut lex_diags)
+        .collect_all()
+        .len();
     let lex_ms = js_sys::Date::now() - lex_start;
-    let out = compile_impl(src, Options { file_name: "source.can".into(), backends, include_paths: Vec::new() });
+    let out = compile_impl(
+        src,
+        Options {
+            file_name: "source.can".into(),
+            backends,
+            include_paths: Vec::new(),
+        },
+    );
 
     let node_count = serde_json::from_str::<serde_json::Value>(&out.ast_json)
         .map(|v| count_nodes(&v))
         .unwrap_or(0);
     let sema = out.sema.as_ref();
-    let handlers = out.unit.as_ref().map(|u| {
-        u.decls.iter().filter_map(|d| match d {
-            Decl::Handler(h) => Some(JsHandler { export_name: h.export_name.clone(), event: event_json(&h.event) }),
-            _ => None,
-        }).collect()
-    }).unwrap_or_default();
-    let timers = sema.map(|s| s.timers.iter().filter_map(|id| {
-        s.var(*id).map(|v| JsTimer { id: v.timer_id.unwrap_or(0), name: v.name.clone() })
-    }).collect()).unwrap_or_default();
+    let handlers = out
+        .unit
+        .as_ref()
+        .map(|u| {
+            u.decls
+                .iter()
+                .filter_map(|d| match d {
+                    Decl::Handler(h) => Some(JsHandler {
+                        export_name: h.export_name.clone(),
+                        event: event_json(&h.event),
+                    }),
+                    _ => None,
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let timers = sema
+        .map(|s| {
+            s.timers
+                .iter()
+                .filter_map(|id| {
+                    s.var(*id).map(|v| JsTimer {
+                        id: v.timer_id.unwrap_or(0),
+                        name: v.name.clone(),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
     let wasm = out.wasm.as_ref().map(|w| JsWasm {
-        bytes: w.bytes.clone(), wat: w.wat.clone(), exports: w.exports.clone(),
-        imports: vec!["capl.write".into(), "capl.setTimer".into(), "capl.setTimerCyclic".into(), "capl.cancelTimer".into(), "capl.output".into(), "capl.timeNow".into(), "capl.random".into(), "capl.strlen".into(), "capl.pow".into(), "capl.sin".into(), "capl.cos".into(), "capl.canOnline".into(), "capl.canOffline".into(), "capl.stopMeasurement".into()],
-        memory_pages: w.memory_pages, msgbuf_addr: w.msgbuf_addr,
-        layout: w.layout.iter().map(|l| JsLayout { name: l.name.clone(), addr: l.addr, size: l.size, ty: l.ty.clone(), kind: "data".into() }).collect(),
+        bytes: w.bytes.clone(),
+        wat: w.wat.clone(),
+        exports: w.exports.clone(),
+        imports: vec![
+            "capl.write".into(),
+            "capl.setTimer".into(),
+            "capl.setTimerCyclic".into(),
+            "capl.cancelTimer".into(),
+            "capl.output".into(),
+            "capl.timeNow".into(),
+            "capl.random".into(),
+            "capl.strlen".into(),
+            "capl.pow".into(),
+            "capl.sin".into(),
+            "capl.cos".into(),
+            "capl.canOnline".into(),
+            "capl.canOffline".into(),
+            "capl.stopMeasurement".into(),
+        ],
+        memory_pages: w.memory_pages,
+        msgbuf_addr: w.msgbuf_addr,
+        layout: w
+            .layout
+            .iter()
+            .map(|l| JsLayout {
+                name: l.name.clone(),
+                addr: l.addr,
+                size: l.size,
+                ty: l.ty.clone(),
+                kind: "data".into(),
+            })
+            .collect(),
     });
 
     let result = JsResult {
@@ -171,10 +228,17 @@ pub fn compile(src: &str, backends: &str) -> Result<JsValue, JsValue> {
                     capl_diag::Stage::Link => "link",
                 },
                 message: d.message.clone(),
-                loc: JsLoc { line: d.loc.line, col: d.loc.col, pos: d.loc.pos, end: d.loc.end },
+                loc: JsLoc {
+                    line: d.loc.line,
+                    col: d.loc.col,
+                    pos: d.loc.pos,
+                    end: d.loc.end,
+                },
             })
             .collect(),
-        ast_json: out.ast_json.clone(), token_count, node_count,
+        ast_json: out.ast_json.clone(),
+        token_count,
+        node_count,
         c: out.c.clone(),
         wasm,
         sema: JsSema { handlers, timers },
@@ -191,24 +255,108 @@ pub fn compile(src: &str, backends: &str) -> Result<JsValue, JsValue> {
 fn count_nodes(v: &serde_json::Value) -> usize {
     match v {
         serde_json::Value::Array(a) => a.iter().map(count_nodes).sum(),
-        serde_json::Value::Object(o) => usize::from(o.contains_key("kind")) + o.values().map(count_nodes).sum::<usize>(),
+        serde_json::Value::Object(o) => {
+            usize::from(o.contains_key("kind")) + o.values().map(count_nodes).sum::<usize>()
+        }
         _ => 0,
     }
 }
 
 fn event_json(e: &EventSpec) -> JsEvent {
     match e {
-        EventSpec::Start => JsEvent { kind: "start".into(), name: None, id: None, wildcard: None, channel: None, key: None },
-        EventSpec::PreStart => JsEvent { kind: "preStart".into(), name: None, id: None, wildcard: None, channel: None, key: None },
-        EventSpec::StopMeasurement => JsEvent { kind: "stopMeasurement".into(), name: None, id: None, wildcard: None, channel: None, key: None },
-        EventSpec::PreStop => JsEvent { kind: "preStop".into(), name: None, id: None, wildcard: None, channel: None, key: None },
-        EventSpec::ErrorFrame => JsEvent { kind: "errorFrame".into(), name: None, id: None, wildcard: None, channel: None, key: None },
-        EventSpec::BusOff => JsEvent { kind: "busOff".into(), name: None, id: None, wildcard: None, channel: None, key: None },
-        EventSpec::Timer { name } => JsEvent { kind: "timer".into(), name: Some(name.clone()), id: None, wildcard: None, channel: None, key: None },
-        EventSpec::Message { id, name, channel, wildcard } => JsEvent { kind: "message".into(), name: name.clone(), id: *id, wildcard: Some(*wildcard), channel: *channel, key: None },
-        EventSpec::Key { key, wildcard } => JsEvent { kind: "key".into(), name: None, id: None, wildcard: Some(*wildcard), channel: None, key: key.map(|c| c.to_string()) },
-        EventSpec::SysVar { name } => JsEvent { kind: "sysvar".into(), name: Some(name.clone()), id: None, wildcard: None, channel: None, key: None },
-        EventSpec::EnvVar { name } => JsEvent { kind: "envVar".into(), name: Some(name.clone()), id: None, wildcard: None, channel: None, key: None },
+        EventSpec::Start => JsEvent {
+            kind: "start".into(),
+            name: None,
+            id: None,
+            wildcard: None,
+            channel: None,
+            key: None,
+        },
+        EventSpec::PreStart => JsEvent {
+            kind: "preStart".into(),
+            name: None,
+            id: None,
+            wildcard: None,
+            channel: None,
+            key: None,
+        },
+        EventSpec::StopMeasurement => JsEvent {
+            kind: "stopMeasurement".into(),
+            name: None,
+            id: None,
+            wildcard: None,
+            channel: None,
+            key: None,
+        },
+        EventSpec::PreStop => JsEvent {
+            kind: "preStop".into(),
+            name: None,
+            id: None,
+            wildcard: None,
+            channel: None,
+            key: None,
+        },
+        EventSpec::ErrorFrame => JsEvent {
+            kind: "errorFrame".into(),
+            name: None,
+            id: None,
+            wildcard: None,
+            channel: None,
+            key: None,
+        },
+        EventSpec::BusOff => JsEvent {
+            kind: "busOff".into(),
+            name: None,
+            id: None,
+            wildcard: None,
+            channel: None,
+            key: None,
+        },
+        EventSpec::Timer { name } => JsEvent {
+            kind: "timer".into(),
+            name: Some(name.clone()),
+            id: None,
+            wildcard: None,
+            channel: None,
+            key: None,
+        },
+        EventSpec::Message {
+            id,
+            name,
+            channel,
+            wildcard,
+        } => JsEvent {
+            kind: "message".into(),
+            name: name.clone(),
+            id: *id,
+            wildcard: Some(*wildcard),
+            channel: *channel,
+            key: None,
+        },
+        EventSpec::Key { key, wildcard } => JsEvent {
+            kind: "key".into(),
+            name: None,
+            id: None,
+            wildcard: Some(*wildcard),
+            channel: None,
+            key: key.map(|c| c.to_string()),
+        },
+        EventSpec::SysVar { name } => JsEvent {
+            kind: "sysvar".into(),
+            name: Some(name.clone()),
+            id: None,
+            wildcard: None,
+            channel: None,
+            key: None,
+        },
+        EventSpec::EnvVar { name } => JsEvent {
+            kind: "envVar".into(),
+            name: Some(name.clone()),
+            id: None,
+            wildcard: None,
+            channel: None,
+            key: None,
+        },
     }
 }
 

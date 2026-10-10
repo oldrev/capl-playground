@@ -32,20 +32,44 @@ static CaplMessage *this_msg;
 
 pub fn c_type(t: &Ty) -> String {
     match t.kind {
-        TyKind::Void => "void".into(), TyKind::Char => "char".into(), TyKind::Byte => "uint8_t".into(),
-        TyKind::Int => "int16_t".into(), TyKind::Word => "uint16_t".into(), TyKind::Long => "int32_t".into(),
-        TyKind::Dword => "uint32_t".into(), TyKind::Int64 => "int64_t".into(), TyKind::Qword => "uint64_t".into(),
-        TyKind::Float | TyKind::Double => "double".into(), TyKind::Timer | TyKind::MsTimer => "CaplTimer".into(),
-        TyKind::Message => "CaplMessage".into(), TyKind::Array => t.elem.as_ref().map(|e| c_type(e)).unwrap_or_else(|| "int32_t".into()),
-        TyKind::Enum => t.name.clone().map(|n| format!("enum {n}")).unwrap_or_else(|| "int32_t".into()),
-        TyKind::Struct => t.name.clone().map(|n| format!("struct {n}")).unwrap_or_else(|| "int32_t".into()),
+        TyKind::Void => "void".into(),
+        TyKind::Char => "char".into(),
+        TyKind::Byte => "uint8_t".into(),
+        TyKind::Int => "int16_t".into(),
+        TyKind::Word => "uint16_t".into(),
+        TyKind::Long => "int32_t".into(),
+        TyKind::Dword => "uint32_t".into(),
+        TyKind::Int64 => "int64_t".into(),
+        TyKind::Qword => "uint64_t".into(),
+        TyKind::Float | TyKind::Double => "double".into(),
+        TyKind::Timer | TyKind::MsTimer => "CaplTimer".into(),
+        TyKind::Message => "CaplMessage".into(),
+        TyKind::Array => t
+            .elem
+            .as_ref()
+            .map(|e| c_type(e))
+            .unwrap_or_else(|| "int32_t".into()),
+        TyKind::Enum => t
+            .name
+            .clone()
+            .map(|n| format!("enum {n}"))
+            .unwrap_or_else(|| "int32_t".into()),
+        TyKind::Struct => t
+            .name
+            .clone()
+            .map(|n| format!("struct {n}"))
+            .unwrap_or_else(|| "int32_t".into()),
         TyKind::Error => "int32_t".into(),
     }
 }
 
 fn c_array_decl(t: &Ty) -> (String, String) {
     if t.kind == TyKind::Array {
-        let (base, suffix) = t.elem.as_deref().map(c_array_decl).unwrap_or_else(|| ("int32_t".into(), String::new()));
+        let (base, suffix) = t
+            .elem
+            .as_deref()
+            .map(c_array_decl)
+            .unwrap_or_else(|| ("int32_t".into(), String::new()));
         (base, format!("[{}]{}", t.len.unwrap_or(1), suffix))
     } else {
         (c_type(t), String::new())
@@ -60,7 +84,11 @@ pub struct CBackend<'s> {
 
 impl<'s> CBackend<'s> {
     pub fn new(sema: &'s SemaResult) -> Self {
-        Self { sema, out: String::new(), indent: 0 }
+        Self {
+            sema,
+            out: String::new(),
+            indent: 0,
+        }
     }
 
     fn line(&mut self, s: &str) {
@@ -76,7 +104,14 @@ impl<'s> CBackend<'s> {
         self.line("");
         for decl in &unit.decls {
             if let Decl::Enum(e) = decl {
-                self.line(&format!("enum {} {{", if e.name.is_empty() { "CaplAnonEnum" } else { &e.name }));
+                self.line(&format!(
+                    "enum {} {{",
+                    if e.name.is_empty() {
+                        "CaplAnonEnum"
+                    } else {
+                        &e.name
+                    }
+                ));
                 self.indent += 1;
                 for item in &e.items {
                     self.line(&format!("{} = {},", item.name, item.resolved));
@@ -85,14 +120,22 @@ impl<'s> CBackend<'s> {
                 self.line("};");
             }
             if let Decl::Struct(s) = decl {
-                self.line(&format!("struct {} {{", s.name)); self.indent += 1;
-                if let Some(ty) = &s.ty { let _ = ty; }
+                self.line(&format!("struct {} {{", s.name));
+                self.indent += 1;
+                if let Some(ty) = &s.ty {
+                    let _ = ty;
+                }
                 for f in &s.fields {
                     let ty = c_type(&f.decl_ty);
-                    let dims = f.dims.iter().map(|d| format!("[{}]", self.expr(d))).collect::<String>();
+                    let dims = f
+                        .dims
+                        .iter()
+                        .map(|d| format!("[{}]", self.expr(d)))
+                        .collect::<String>();
                     self.line(&format!("{} {}{};", ty, f.name, dims));
                 }
-                self.indent -= 1; self.line("};");
+                self.indent -= 1;
+                self.line("};");
             }
         }
         for &id in &self.sema.globals {
@@ -135,7 +178,11 @@ impl<'s> CBackend<'s> {
                             .collect::<Vec<_>>()
                             .join(", ")
                     };
-                    let ret = if matches!(f.ret_ty.kind, TyKind::Array | TyKind::Struct) { format!("{} *", c_type(&f.ret_ty)) } else { c_type(&f.ret_ty) };
+                    let ret = if matches!(f.ret_ty.kind, TyKind::Array | TyKind::Struct) {
+                        format!("{} *", c_type(&f.ret_ty))
+                    } else {
+                        c_type(&f.ret_ty)
+                    };
                     let sig = format!("{} {}({})", ret, f.name, params);
                     self.line(&sig);
                     self.stmt(&f.body);
@@ -160,7 +207,10 @@ impl<'s> CBackend<'s> {
                     EventSpec::Key { key: Some(k), .. } => *k as u32,
                     _ => 0,
                 };
-                self.line(&format!("{{ \"{}\", 0x{:x}u, {} }},", h.export_name, sel, h.export_name));
+                self.line(&format!(
+                    "{{ \"{}\", 0x{:x}u, {} }},",
+                    h.export_name, sel, h.export_name
+                ));
             }
         }
         self.line("{ 0, 0, 0 }");
@@ -186,20 +236,37 @@ impl<'s> CBackend<'s> {
             }
             StmtKind::Decl { decls } => {
                 for d in decls {
-                    let init = d.init.as_ref().map(|i| format!(" = {}", self.expr(i))).unwrap_or_default();
+                    let init = d
+                        .init
+                        .as_ref()
+                        .map(|i| format!(" = {}", self.expr(i)))
+                        .unwrap_or_default();
                     if d.is_array {
                         let dims = if d.dims.is_empty() {
                             "[]".to_string()
                         } else {
-                            d.dims.iter().map(|dim| format!("[{}]", self.expr(dim))).collect::<String>()
+                            d.dims
+                                .iter()
+                                .map(|dim| format!("[{}]", self.expr(dim)))
+                                .collect::<String>()
                         };
-                        self.line(&format!("{} {}{}{};", c_type(&d.decl_ty), d.name, dims, init));
+                        self.line(&format!(
+                            "{} {}{}{};",
+                            c_type(&d.decl_ty),
+                            d.name,
+                            dims,
+                            init
+                        ));
                     } else {
                         self.line(&format!("{} {}{};", c_type(&d.decl_ty), d.name, init));
                     }
                 }
             }
-            StmtKind::If { cond, then, otherwise } => {
+            StmtKind::If {
+                cond,
+                then,
+                otherwise,
+            } => {
                 let c = self.expr(cond);
                 self.line(&format!("if ({c})"));
                 self.stmt(then);
@@ -219,9 +286,17 @@ impl<'s> CBackend<'s> {
                 let c = self.expr(cond);
                 self.line(&format!("while ({c});"));
             }
-            StmtKind::For { init, cond, step, body } => {
+            StmtKind::For {
+                init,
+                cond,
+                step,
+                body,
+            } => {
                 let i = match init.as_deref() {
-                    Some(Stmt { kind: StmtKind::Expr { expr }, .. }) => self.expr(expr),
+                    Some(Stmt {
+                        kind: StmtKind::Expr { expr },
+                        ..
+                    }) => self.expr(expr),
                     _ => String::new(),
                 };
                 let c = cond.as_ref().map(|c| self.expr(c)).unwrap_or_default();
@@ -255,7 +330,11 @@ impl<'s> CBackend<'s> {
                     let aggregate = e.ty.as_ref().is_some_and(|t| t.kind == TyKind::Struct);
                     let already_address = matches!(e.kind, ExprKind::Ident { sym: Some(id), .. } if self.sema.var(id).is_some_and(|v| v.storage == capl_sema::Storage::Param && v.ty.kind == TyKind::Struct));
                     let e = self.expr(e);
-                    let e = if aggregate && !already_address { format!("&{e}") } else { e };
+                    let e = if aggregate && !already_address {
+                        format!("&{e}")
+                    } else {
+                        e
+                    };
                     self.line(&format!("return {e};"));
                 }
                 None => self.line("return;"),
@@ -272,7 +351,11 @@ impl<'s> CBackend<'s> {
             ExprKind::StrLit { value } => format!("{value:?}"),
             ExprKind::Ident { name, .. } => name.rsplit("::").next().unwrap_or(name).to_string(),
             ExprKind::This => "this_msg".into(),
-            ExprKind::Unary { op, operand, postfix } => {
+            ExprKind::Unary {
+                op,
+                operand,
+                postfix,
+            } => {
                 let o = self.expr(operand);
                 if *postfix {
                     format!("({o}{op})")
@@ -290,8 +373,17 @@ impl<'s> CBackend<'s> {
                     format!("({} {} {})", self.expr(target), op, self.expr(value))
                 }
             }
-            ExprKind::Cond { cond, then, otherwise } => {
-                format!("({} ? {} : {})", self.expr(cond), self.expr(then), self.expr(otherwise))
+            ExprKind::Cond {
+                cond,
+                then,
+                otherwise,
+            } => {
+                format!(
+                    "({} ? {} : {})",
+                    self.expr(cond),
+                    self.expr(then),
+                    self.expr(otherwise)
+                )
             }
             ExprKind::Index { base, index } => format!("{}[{}]", self.expr(base), self.expr(index)),
             ExprKind::Member { base, name } => {
@@ -304,7 +396,14 @@ impl<'s> CBackend<'s> {
                 }
             }
             ExprKind::InitList { items } => {
-                format!("{{ {} }}", items.iter().map(|i| self.expr(i)).collect::<Vec<_>>().join(", "))
+                format!(
+                    "{{ {} }}",
+                    items
+                        .iter()
+                        .map(|i| self.expr(i))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
             }
             ExprKind::Call { callee, args, .. } => self.call(callee, args),
         }
@@ -318,14 +417,20 @@ impl<'s> CBackend<'s> {
     }
 
     fn is_struct_param(&self, e: &Expr) -> bool {
-        let ExprKind::Ident { sym: Some(id), .. } = e.kind else { return false };
-        self.sema.var(id).is_some_and(|v| v.storage == capl_sema::Storage::Param && v.ty.kind == TyKind::Struct)
+        let ExprKind::Ident { sym: Some(id), .. } = e.kind else {
+            return false;
+        };
+        self.sema
+            .var(id)
+            .is_some_and(|v| v.storage == capl_sema::Storage::Param && v.ty.kind == TyKind::Struct)
     }
-
 
     fn call(&self, callee: &Expr, args: &[Expr]) -> String {
         if let ExprKind::Member { base, name } = &callee.kind {
-            let idx = args.first().map(|a| self.expr(a)).unwrap_or_else(|| "0".into());
+            let idx = args
+                .first()
+                .map(|a| self.expr(a))
+                .unwrap_or_else(|| "0".into());
             return match msg_accessor(name) {
                 Some((1, _)) => format!("CAPL_B({}, {idx})", self.msg_ref(base)),
                 Some((2, _)) => format!("CAPL_W({}, {idx})", self.msg_ref(base)),
@@ -336,12 +441,24 @@ impl<'s> CBackend<'s> {
             ExprKind::Ident { name, .. } => name.clone(),
             _ => "(*unknown)".into(),
         };
-        let a: Vec<String> = args.iter().map(|x| {
-            if let Some(id) = match &x.kind { ExprKind::Ident { sym: Some(id), .. } => Some(*id), _ => None } {
-                if self.sema.var(id).is_some_and(|v| v.ty.kind == TyKind::Struct) { return format!("&{}", self.expr(x)); }
-            }
-            self.expr(x)
-        }).collect();
+        let a: Vec<String> = args
+            .iter()
+            .map(|x| {
+                if let Some(id) = match &x.kind {
+                    ExprKind::Ident { sym: Some(id), .. } => Some(*id),
+                    _ => None,
+                } {
+                    if self
+                        .sema
+                        .var(id)
+                        .is_some_and(|v| v.ty.kind == TyKind::Struct)
+                    {
+                        return format!("&{}", self.expr(x));
+                    }
+                }
+                self.expr(x)
+            })
+            .collect();
         match name.as_str() {
             "write" => format!("capl_write({})", a.join(", ")),
             "setTimer" => format!("capl_set_timer({})", a.join(", ")),

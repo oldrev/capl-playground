@@ -191,13 +191,20 @@ impl<'d> Sema<'d> {
         self.out.syms.push(sym);
         let scope = self.scopes.last_mut().expect("a scope is always open");
         if scope.names.insert(name.to_string(), id).is_some() {
-            self.diags.error(Stage::Sema, loc, format!("'{name}' is already declared in this scope"));
+            self.diags.error(
+                Stage::Sema,
+                loc,
+                format!("'{name}' is already declared in this scope"),
+            );
         }
         id
     }
 
     fn lookup(&self, name: &str) -> Option<SymId> {
-        self.scopes.iter().rev().find_map(|s| s.names.get(name).copied())
+        self.scopes
+            .iter()
+            .rev()
+            .find_map(|s| s.names.get(name).copied())
     }
 
     fn resolve_type(&self, ty: &Ty) -> Ty {
@@ -223,19 +230,23 @@ impl<'d> Sema<'d> {
             TyKind::Struct => {
                 if let Some(name) = &ty.name {
                     if !self.out.structs.contains_key(name) {
-                        self.diags.error(Stage::Sema, loc, format!("unknown struct type '{name}'"));
+                        self.diags
+                            .error(Stage::Sema, loc, format!("unknown struct type '{name}'"));
                     }
                 }
             }
             TyKind::Enum => {
                 if let Some(name) = &ty.name {
                     if !self.out.enums.contains_key(name) {
-                        self.diags.error(Stage::Sema, loc, format!("unknown enum type '{name}'"));
+                        self.diags
+                            .error(Stage::Sema, loc, format!("unknown enum type '{name}'"));
                     }
                 }
             }
             TyKind::Array => {
-                if let Some(elem) = &ty.elem { self.validate_type(elem, loc); }
+                if let Some(elem) = &ty.elem {
+                    self.validate_type(elem, loc);
+                }
             }
             _ => {}
         }
@@ -245,7 +256,11 @@ impl<'d> Sema<'d> {
         if expected.kind == TyKind::Enum && actual.kind == TyKind::Enum {
             if let (Some(expected), Some(actual)) = (&expected.name, &actual.name) {
                 if expected != actual {
-                    self.diags.error(Stage::Sema, loc, format!("incompatible enum types '{expected}' and '{actual}'"));
+                    self.diags.error(
+                        Stage::Sema,
+                        loc,
+                        format!("incompatible enum types '{expected}' and '{actual}'"),
+                    );
                 }
             }
         }
@@ -253,7 +268,13 @@ impl<'d> Sema<'d> {
 
     fn field_type(&self, base: &Ty, name: &str) -> Option<Ty> {
         let struct_name = base.name.as_deref()?;
-        self.out.structs.get(struct_name).and_then(|layout| layout.members.iter().find(|m| m.name == name).map(|m| m.ty.clone()))
+        self.out.structs.get(struct_name).and_then(|layout| {
+            layout
+                .members
+                .iter()
+                .find(|m| m.name == name)
+                .map(|m| m.ty.clone())
+        })
     }
 
     fn run(mut self, unit: &mut Unit) -> SemaResult {
@@ -262,7 +283,11 @@ impl<'d> Sema<'d> {
         for decl in unit.decls.iter_mut() {
             let Decl::Enum(e) = decl else { continue };
             if !e.name.is_empty() && self.out.enums.contains_key(&e.name) {
-                self.diags.error(Stage::Sema, e.loc, format!("enum '{}' is already declared", e.name));
+                self.diags.error(
+                    Stage::Sema,
+                    e.loc,
+                    format!("enum '{}' is already declared", e.name),
+                );
                 continue;
             }
             let enum_ty = Ty {
@@ -280,7 +305,11 @@ impl<'d> Sema<'d> {
                     Some(expr) => match self.const_fold(expr) {
                         Some(value) => value,
                         None => {
-                            self.diags.error(Stage::Sema, item.loc, "enum initializer must be an integer constant");
+                            self.diags.error(
+                                Stage::Sema,
+                                item.loc,
+                                "enum initializer must be an integer constant",
+                            );
                             next
                         }
                     },
@@ -288,8 +317,18 @@ impl<'d> Sema<'d> {
                 };
                 item.resolved = value;
                 item.ty = Some(enum_ty.clone());
-                variants.push(EnumVariant { name: item.name.clone(), value });
-                let id = self.declare(&item.name, Sym::EnumConst { value, ty: enum_ty.clone() }, item.loc);
+                variants.push(EnumVariant {
+                    name: item.name.clone(),
+                    value,
+                });
+                let id = self.declare(
+                    &item.name,
+                    Sym::EnumConst {
+                        value,
+                        ty: enum_ty.clone(),
+                    },
+                    item.loc,
+                );
                 if !e.name.is_empty() {
                     let qualified = format!("{}::{}", e.name, item.name);
                     let scope = self.scopes.last_mut().expect("a scope is always open");
@@ -298,7 +337,11 @@ impl<'d> Sema<'d> {
                 next = value.saturating_add(1);
             }
             if !e.name.is_empty() {
-                let layout = EnumLayout { name: e.name.clone(), variants, size: 4 };
+                let layout = EnumLayout {
+                    name: e.name.clone(),
+                    variants,
+                    size: 4,
+                };
                 self.out.enums.insert(e.name.clone(), layout.clone());
                 self.declare(&e.name, Sym::Enum(layout), e.loc);
             }
@@ -317,7 +360,11 @@ impl<'d> Sema<'d> {
             match decl {
                 Decl::Struct(s) => {
                     if self.out.structs.contains_key(&s.name) {
-                        self.diags.error(Stage::Sema, s.loc, format!("struct '{}' is already declared", s.name));
+                        self.diags.error(
+                            Stage::Sema,
+                            s.loc,
+                            format!("struct '{}' is already declared", s.name),
+                        );
                         continue;
                     }
                     let mut offset = 0;
@@ -327,16 +374,46 @@ impl<'d> Sema<'d> {
                         let mut ty = self.resolve_type(&field.decl_ty);
                         for dim in field.dims.iter().rev() {
                             let len = self.const_fold(dim).unwrap_or(0).max(0) as u32;
-                            if len == 0 { self.diags.error(Stage::Sema, field.loc, "struct array field requires a positive constant length"); }
+                            if len == 0 {
+                                self.diags.error(
+                                    Stage::Sema,
+                                    field.loc,
+                                    "struct array field requires a positive constant length",
+                                );
+                            }
                             ty = Ty::array(ty, len.max(1));
                         }
                         let size = ty.size_of();
-                        if size == 0 { self.diags.error(Stage::Sema, field.loc, format!("unknown or recursive type in struct field '{}'", field.name)); }
-                        members.push(StructMember { name: field.name.clone(), ty, offset });
+                        if size == 0 {
+                            self.diags.error(
+                                Stage::Sema,
+                                field.loc,
+                                format!(
+                                    "unknown or recursive type in struct field '{}'",
+                                    field.name
+                                ),
+                            );
+                        }
+                        members.push(StructMember {
+                            name: field.name.clone(),
+                            ty,
+                            offset,
+                        });
                         offset = offset.saturating_add(size.max(1));
                     }
-                    let layout = StructLayout { name: s.name.clone(), members, size: offset.max(1) };
-                    s.ty = Some(Ty { kind: TyKind::Struct, name: Some(s.name.clone()), size: Some(layout.size), elem: None, len: None, msg_id: None });
+                    let layout = StructLayout {
+                        name: s.name.clone(),
+                        members,
+                        size: offset.max(1),
+                    };
+                    s.ty = Some(Ty {
+                        kind: TyKind::Struct,
+                        name: Some(s.name.clone()),
+                        size: Some(layout.size),
+                        elem: None,
+                        len: None,
+                        msg_id: None,
+                    });
                     self.out.structs.insert(s.name.clone(), layout.clone());
                     self.declare(&s.name, Sym::Struct(layout), s.loc);
                 }
@@ -362,7 +439,11 @@ impl<'d> Sema<'d> {
                         index,
                     });
                     if builtin(&f.name).is_some() {
-                        self.diags.error(Stage::Sema, f.loc, format!("'{}' shadows a CAPL built-in", f.name));
+                        self.diags.error(
+                            Stage::Sema,
+                            f.loc,
+                            format!("'{}' shadows a CAPL built-in", f.name),
+                        );
                     }
                     let id = self.declare(&f.name.clone(), sym, f.loc);
                     self.out.funcs.push(id);
@@ -406,7 +487,13 @@ impl<'d> Sema<'d> {
                         });
                         p.sym = Some(self.declare(&p.name.clone(), sym, p.loc));
                     }
-                    let mut body = std::mem::replace(&mut f.body, Stmt { kind: StmtKind::Empty, loc: f.loc });
+                    let mut body = std::mem::replace(
+                        &mut f.body,
+                        Stmt {
+                            kind: StmtKind::Empty,
+                            loc: f.loc,
+                        },
+                    );
                     self.stmt(&mut body);
                     f.body = body;
                     self.scopes.pop();
@@ -416,12 +503,20 @@ impl<'d> Sema<'d> {
                     self.cur_this = match &h.event {
                         EventSpec::Message { .. } => Some(Ty::scalar(TyKind::Message)),
                         EventSpec::Key { .. } => Some(Ty::scalar(TyKind::Dword)),
-                        EventSpec::SysVar { .. } | EventSpec::EnvVar { .. } => Some(Ty::scalar(TyKind::Long)),
+                        EventSpec::SysVar { .. } | EventSpec::EnvVar { .. } => {
+                            Some(Ty::scalar(TyKind::Long))
+                        }
                         _ => None,
                     };
                     self.cur_fn = h.export_name.clone();
                     self.scopes.push(Scope::default());
-                    let mut body = std::mem::replace(&mut h.body, Stmt { kind: StmtKind::Empty, loc: h.loc });
+                    let mut body = std::mem::replace(
+                        &mut h.body,
+                        Stmt {
+                            kind: StmtKind::Empty,
+                            loc: h.loc,
+                        },
+                    );
                     self.stmt(&mut body);
                     h.body = body;
                     self.scopes.pop();
@@ -438,19 +533,33 @@ impl<'d> Sema<'d> {
         if v.is_array {
             if v.dims.is_empty() {
                 let len = match &v.init {
-                    Some(Expr { kind: ExprKind::InitList { items }, .. }) => items.len() as u32,
-                    Some(Expr { kind: ExprKind::StrLit { value }, .. }) => value.len() as u32 + 1,
+                    Some(Expr {
+                        kind: ExprKind::InitList { items },
+                        ..
+                    }) => items.len() as u32,
+                    Some(Expr {
+                        kind: ExprKind::StrLit { value },
+                        ..
+                    }) => value.len() as u32 + 1,
                     _ => 0,
                 };
                 if len == 0 {
-                    self.diags.error(Stage::Sema, v.loc, format!("cannot deduce the length of array '{}'", v.name));
+                    self.diags.error(
+                        Stage::Sema,
+                        v.loc,
+                        format!("cannot deduce the length of array '{}'", v.name),
+                    );
                 }
                 ty = Ty::array(ty, len.max(1));
             } else {
                 for dim in v.dims.iter().rev() {
                     let len = self.const_fold(dim).unwrap_or(0).max(0) as u32;
                     if len == 0 {
-                        self.diags.error(Stage::Sema, v.loc, format!("array '{}' requires positive constant dimensions", v.name));
+                        self.diags.error(
+                            Stage::Sema,
+                            v.loc,
+                            format!("array '{}' requires positive constant dimensions", v.name),
+                        );
                     }
                     ty = Ty::array(ty, len.max(1));
                 }
@@ -476,7 +585,12 @@ impl<'d> Sema<'d> {
         v.sym = Some(id);
         match storage {
             Storage::Global => self.out.globals.push(id),
-            _ => self.out.locals.entry(self.cur_fn.clone()).or_default().push(id),
+            _ => self
+                .out
+                .locals
+                .entry(self.cur_fn.clone())
+                .or_default()
+                .push(id),
         }
         if timer_id.is_some() {
             self.out.timers.push(id);
@@ -511,7 +625,11 @@ impl<'d> Sema<'d> {
                     self.analyze_var_init(d);
                 }
             }
-            StmtKind::If { cond, then, otherwise } => {
+            StmtKind::If {
+                cond,
+                then,
+                otherwise,
+            } => {
                 self.expr(cond);
                 self.stmt(then);
                 if let Some(o) = otherwise {
@@ -530,7 +648,12 @@ impl<'d> Sema<'d> {
                 self.loop_depth -= 1;
                 self.expr(cond);
             }
-            StmtKind::For { init, cond, step, body } => {
+            StmtKind::For {
+                init,
+                cond,
+                step,
+                body,
+            } => {
                 self.scopes.push(Scope::default());
                 if let Some(i) = init {
                     self.stmt(i);
@@ -554,11 +677,16 @@ impl<'d> Sema<'d> {
                 for c in clauses.iter_mut() {
                     match &c.test {
                         Some(t) => match self.const_fold(t) {
-                            Some(v) if seen.contains(&v) => {
-                                self.diags.error(Stage::Sema, c.loc, format!("duplicate case label {v}"))
-                            }
+                            Some(v) if seen.contains(&v) => self.diags.error(
+                                Stage::Sema,
+                                c.loc,
+                                format!("duplicate case label {v}"),
+                            ),
                             Some(v) => seen.push(v),
-                            None => self.diags.error(Stage::Sema, c.loc, "case label must be constant"),
+                            None => {
+                                self.diags
+                                    .error(Stage::Sema, c.loc, "case label must be constant")
+                            }
                         },
                         None => defaults += 1,
                     }
@@ -567,18 +695,21 @@ impl<'d> Sema<'d> {
                     }
                 }
                 if defaults > 1 {
-                    self.diags.error(Stage::Sema, s.loc, "more than one 'default' label");
+                    self.diags
+                        .error(Stage::Sema, s.loc, "more than one 'default' label");
                 }
                 self.switch_depth -= 1;
             }
             StmtKind::Break => {
                 if self.loop_depth == 0 && self.switch_depth == 0 {
-                    self.diags.error(Stage::Sema, s.loc, "'break' outside of a loop or switch");
+                    self.diags
+                        .error(Stage::Sema, s.loc, "'break' outside of a loop or switch");
                 }
             }
             StmtKind::Continue => {
                 if self.loop_depth == 0 {
-                    self.diags.error(Stage::Sema, s.loc, "'continue' outside of a loop");
+                    self.diags
+                        .error(Stage::Sema, s.loc, "'continue' outside of a loop");
                 }
             }
             StmtKind::Return { expr } => {
@@ -588,11 +719,16 @@ impl<'d> Sema<'d> {
                         let value_ty = self.expr(e);
                         self.check_enum_compat(&self.cur_ret.clone(), &value_ty, s.loc);
                         if void {
-                            self.diags.error(Stage::Sema, s.loc, "cannot return a value from a void function");
+                            self.diags.error(
+                                Stage::Sema,
+                                s.loc,
+                                "cannot return a value from a void function",
+                            );
                         }
                     }
                     None if !void => {
-                        self.diags.error(Stage::Sema, s.loc, "function must return a value");
+                        self.diags
+                            .error(Stage::Sema, s.loc, "function must return a value");
                     }
                     None => {}
                 }
@@ -605,9 +741,15 @@ impl<'d> Sema<'d> {
         let ty = match &mut e.kind {
             ExprKind::IntLit { .. } | ExprKind::CharLit { .. } => Ty::scalar(TyKind::Long),
             ExprKind::FloatLit { .. } => Ty::scalar(TyKind::Double),
-            ExprKind::StrLit { value } => Ty::array(Ty::scalar(TyKind::Char), value.len() as u32 + 1),
+            ExprKind::StrLit { value } => {
+                Ty::array(Ty::scalar(TyKind::Char), value.len() as u32 + 1)
+            }
             ExprKind::This => self.cur_this.clone().unwrap_or_else(|| {
-                self.diags.error(Stage::Sema, e.loc, "'this' is only valid inside an event handler");
+                self.diags.error(
+                    Stage::Sema,
+                    e.loc,
+                    "'this' is only valid inside an event handler",
+                );
                 Ty::scalar(TyKind::Error)
             }),
             ExprKind::Ident { name, sym } => match self.lookup(name) {
@@ -618,23 +760,41 @@ impl<'d> Sema<'d> {
                         Sym::Func(_) => Ty::scalar(TyKind::Error),
                         Sym::EnumConst { ty, .. } => ty.clone(),
                         Sym::Enum(_) => Ty::scalar(TyKind::Error),
-                        Sym::Struct(layout) => Ty { kind: TyKind::Struct, name: Some(layout.name.clone()), size: Some(layout.size), elem: None, len: None, msg_id: None },
+                        Sym::Struct(layout) => Ty {
+                            kind: TyKind::Struct,
+                            name: Some(layout.name.clone()),
+                            size: Some(layout.size),
+                            elem: None,
+                            len: None,
+                            msg_id: None,
+                        },
                     }
                 }
                 None => {
                     if builtin(name).is_none() {
-                        self.diags.error(Stage::Sema, e.loc, format!("undefined identifier '{name}'"));
+                        self.diags.error(
+                            Stage::Sema,
+                            e.loc,
+                            format!("undefined identifier '{name}'"),
+                        );
                     }
                     Ty::scalar(TyKind::Error)
                 }
             },
             ExprKind::Unary { operand, op, .. } => {
                 let t = self.expr(operand);
-                if op == "!" { Ty::scalar(TyKind::Long) } else { t }
+                if op == "!" {
+                    Ty::scalar(TyKind::Long)
+                } else {
+                    t
+                }
             }
             ExprKind::Binary { left, right, op } => {
                 let (l, r) = (self.expr(left), self.expr(right));
-                if matches!(op.as_str(), "==" | "!=" | "<" | ">" | "<=" | ">=" | "&&" | "||") {
+                if matches!(
+                    op.as_str(),
+                    "==" | "!=" | "<" | ">" | "<=" | ">=" | "&&" | "||"
+                ) {
                     Ty::scalar(TyKind::Long)
                 } else {
                     usual_conversion(&l, &r)
@@ -646,7 +806,11 @@ impl<'d> Sema<'d> {
                 self.check_enum_compat(&t, &v, e.loc);
                 t
             }
-            ExprKind::Cond { cond, then, otherwise } => {
+            ExprKind::Cond {
+                cond,
+                then,
+                otherwise,
+            } => {
                 self.expr(cond);
                 let (a, b) = (self.expr(then), self.expr(otherwise));
                 usual_conversion(&a, &b)
@@ -660,11 +824,16 @@ impl<'d> Sema<'d> {
                 let b = self.expr(base);
                 if b.kind == TyKind::Struct {
                     self.field_type(&b, name).unwrap_or_else(|| {
-                        self.diags.error(Stage::Sema, e.loc, format!("struct has no field '{name}'"));
+                        self.diags.error(
+                            Stage::Sema,
+                            e.loc,
+                            format!("struct has no field '{name}'"),
+                        );
                         Ty::scalar(TyKind::Error)
                     })
                 } else if b.kind != TyKind::Message {
-                    self.diags.error(Stage::Sema, e.loc, format!("type has no member '{name}'"));
+                    self.diags
+                        .error(Stage::Sema, e.loc, format!("type has no member '{name}'"));
                     Ty::scalar(TyKind::Error)
                 } else {
                     MSG_FIELDS
@@ -686,7 +855,13 @@ impl<'d> Sema<'d> {
         ty
     }
 
-    fn call(&mut self, callee: &mut Expr, args: &mut [Expr], sym: &mut Option<SymId>, loc: Loc) -> Ty {
+    fn call(
+        &mut self,
+        callee: &mut Expr,
+        args: &mut [Expr],
+        sym: &mut Option<SymId>,
+        loc: Loc,
+    ) -> Ty {
         if let ExprKind::Member { base, name } = &mut callee.kind {
             let b = self.expr(base);
             for a in args.iter_mut() {
@@ -698,7 +873,8 @@ impl<'d> Sema<'d> {
             };
         }
         let ExprKind::Ident { name, .. } = &callee.kind else {
-            self.diags.error(Stage::Sema, loc, "call target is not a function");
+            self.diags
+                .error(Stage::Sema, loc, "call target is not a function");
             return Ty::scalar(TyKind::Error);
         };
         let name = name.clone();
@@ -711,7 +887,11 @@ impl<'d> Sema<'d> {
                     self.diags.error(
                         Stage::Sema,
                         loc,
-                        format!("'{name}' expects {} argument(s), got {}", f.params.len(), arg_tys.len()),
+                        format!(
+                            "'{name}' expects {} argument(s), got {}",
+                            f.params.len(),
+                            arg_tys.len()
+                        ),
                     );
                 }
                 for (arg, param) in arg_tys.iter().zip(&f.params) {
@@ -723,12 +903,20 @@ impl<'d> Sema<'d> {
         match builtin(&name) {
             Some((ret, arity, variadic)) => {
                 if (!variadic && arg_tys.len() != arity) || (variadic && arg_tys.len() < arity) {
-                    self.diags.error(Stage::Sema, loc, format!("'{name}' expects {arity} argument(s)"));
+                    self.diags.error(
+                        Stage::Sema,
+                        loc,
+                        format!("'{name}' expects {arity} argument(s)"),
+                    );
                 }
                 Ty::scalar(ret)
             }
             None => {
-                self.diags.error(Stage::Sema, loc, format!("call to undeclared function '{name}'"));
+                self.diags.error(
+                    Stage::Sema,
+                    loc,
+                    format!("call to undeclared function '{name}'"),
+                );
                 Ty::scalar(TyKind::Error)
             }
         }
@@ -767,8 +955,16 @@ impl<'d> Sema<'d> {
                 let id = sym.or_else(|| self.lookup(name))?;
                 self.out.enum_const(id)
             }
-            ExprKind::Cond { cond, then, otherwise } => {
-                if self.const_fold(cond)? != 0 { self.const_fold(then) } else { self.const_fold(otherwise) }
+            ExprKind::Cond {
+                cond,
+                then,
+                otherwise,
+            } => {
+                if self.const_fold(cond)? != 0 {
+                    self.const_fold(then)
+                } else {
+                    self.const_fold(otherwise)
+                }
             }
             _ => None,
         }
@@ -779,7 +975,11 @@ pub fn usual_conversion(a: &Ty, b: &Ty) -> Ty {
     if a.is_float() || b.is_float() {
         Ty::scalar(TyKind::Double)
     } else if a.is_64() || b.is_64() {
-        Ty::scalar(if a.kind == TyKind::Qword || b.kind == TyKind::Qword { TyKind::Qword } else { TyKind::Int64 })
+        Ty::scalar(if a.kind == TyKind::Qword || b.kind == TyKind::Qword {
+            TyKind::Qword
+        } else {
+            TyKind::Int64
+        })
     } else if a.kind == TyKind::Dword || b.kind == TyKind::Dword {
         Ty::scalar(TyKind::Dword)
     } else {
@@ -804,17 +1004,40 @@ mod tests {
 
         let mode = sema.enums.get("Mode").expect("enum layout");
         assert_eq!(mode.size, 4);
-        assert_eq!(mode.variants.iter().map(|v| v.value).collect::<Vec<_>>(), vec![0, 4, 5]);
+        assert_eq!(
+            mode.variants.iter().map(|v| v.value).collect::<Vec<_>>(),
+            vec![0, 4, 5]
+        );
 
-        let Decl::Variables { decls, .. } = &unit.decls[0] else { panic!("expected variables") };
-        let current = sema.var(decls[0].sym.expect("variable symbol")).expect("variable");
+        let Decl::Variables { decls, .. } = &unit.decls[0] else {
+            panic!("expected variables")
+        };
+        let current = sema
+            .var(decls[0].sym.expect("variable symbol"))
+            .expect("variable");
         assert_eq!(current.ty.kind, TyKind::Enum);
         assert_eq!(current.ty.name.as_deref(), Some("Mode"));
 
-        let Decl::Handler(handler) = unit.decls.last().expect("handler") else { panic!("expected handler") };
-        let StmtKind::Block { stmts } = &handler.body.kind else { panic!("expected block") };
-        let StmtKind::Expr { expr: Expr { kind: ExprKind::Assign { value, .. }, .. } } = &stmts[0].kind else { panic!("expected assignment") };
-        assert_eq!(value.ty.as_ref().map(|ty| ty.kind.clone()), Some(TyKind::Enum));
+        let Decl::Handler(handler) = unit.decls.last().expect("handler") else {
+            panic!("expected handler")
+        };
+        let StmtKind::Block { stmts } = &handler.body.kind else {
+            panic!("expected block")
+        };
+        let StmtKind::Expr {
+            expr:
+                Expr {
+                    kind: ExprKind::Assign { value, .. },
+                    ..
+                },
+        } = &stmts[0].kind
+        else {
+            panic!("expected assignment")
+        };
+        assert_eq!(
+            value.ty.as_ref().map(|ty| ty.kind.clone()),
+            Some(TyKind::Enum)
+        );
     }
 
     #[test]
@@ -828,19 +1051,34 @@ mod tests {
         let sema = analyze(&mut unit, &mut diags);
         assert!(!diags.has_errors(), "{:?}", diags.items());
 
-        let Decl::Variables { decls, .. } = &unit.decls[0] else { panic!("expected variables") };
+        let Decl::Variables { decls, .. } = &unit.decls[0] else {
+            panic!("expected variables")
+        };
         let b_id = decls[0].sym.expect("b symbol");
         let a_id = decls[1].sym.expect("a symbol");
-        let ExprKind::Ident { sym: b_init_sym, .. } = &decls[0].init.as_ref().expect("b initializer").kind else {
+        let ExprKind::Ident {
+            sym: b_init_sym, ..
+        } = &decls[0].init.as_ref().expect("b initializer").kind
+        else {
             panic!("expected global identifier initializer")
         };
         assert_eq!(*b_init_sym, Some(a_id));
         assert_ne!(b_id, a_id);
 
-        let Decl::Handler(handler) = &unit.decls[1] else { panic!("expected handler") };
-        let StmtKind::Block { stmts } = &handler.body.kind else { panic!("expected block") };
-        let StmtKind::Decl { decls } = &stmts[0].kind else { panic!("expected local declaration") };
-        let ExprKind::Ident { sym: local_init_sym, .. } = &decls[0].init.as_ref().expect("local initializer").kind else {
+        let Decl::Handler(handler) = &unit.decls[1] else {
+            panic!("expected handler")
+        };
+        let StmtKind::Block { stmts } = &handler.body.kind else {
+            panic!("expected block")
+        };
+        let StmtKind::Decl { decls } = &stmts[0].kind else {
+            panic!("expected local declaration")
+        };
+        let ExprKind::Ident {
+            sym: local_init_sym,
+            ..
+        } = &decls[0].init.as_ref().expect("local initializer").kind
+        else {
             panic!("expected local identifier initializer")
         };
         assert_eq!(*local_init_sym, Some(a_id));
@@ -856,6 +1094,13 @@ mod tests {
             &mut diags,
         );
         let _ = analyze(&mut unit, &mut diags);
-        assert!(diags.items().iter().any(|d| d.message.contains("incompatible enum types")), "{:?}", diags.items());
+        assert!(
+            diags
+                .items()
+                .iter()
+                .any(|d| d.message.contains("incompatible enum types")),
+            "{:?}",
+            diags.items()
+        );
     }
 }
