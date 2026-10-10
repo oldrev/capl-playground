@@ -47,6 +47,13 @@ pub const IMPORTS: &[(&str, &[u8], Option<u8>)] = &[
     ("stopMeasurement", &[], None),
 ];
 
+fn import_index(name: &str) -> u32 {
+    IMPORTS
+        .iter()
+        .position(|(field, _, _)| *field == name)
+        .unwrap_or_else(|| panic!("missing host import '{name}'")) as u32
+}
+
 /* ── function body builder ──────────────────────────────── */
 
 /// Emits bytes and a WAT listing in lock-step so `--emit=wat` is free.
@@ -1507,7 +1514,7 @@ impl<'s> WasmBackend<'s> {
                 code.i32c(fmt_addr as i32);
                 code.i32c(args.len().saturating_sub(1) as i32);
                 code.i32c(VARARG_BASE as i32);
-                code.call(0);
+                code.call(import_index("write"));
                 code.i32c(0);
             }
             "setTimer" | "setTimerCyclic" => {
@@ -1527,25 +1534,25 @@ impl<'s> WasmBackend<'s> {
                 } else {
                     code.i32c(0);
                 }
-                code.call(if name == "setTimer" { 1 } else { 2 });
+                code.call(import_index(name));
                 code.i32c(0);
             }
             "cancelTimer" => {
                 code.i32c(0);
-                code.call(3);
+                code.call(import_index(name));
                 code.i32c(0);
             }
             "output" => {
                 if let Some(arg) = args.first() {
                     if let Some(addr) = self.aggregate_addr(arg) {
                         code.i32c(addr as i32);
-                        code.call(4);
+                        code.call(import_index(name));
                     }
                 }
                 code.i32c(0);
             }
             "timeNow" => {
-                code.call(5);
+                code.call(import_index(name));
             }
             "random" => {
                 if let Some(a) = args.first() {
@@ -1553,13 +1560,13 @@ impl<'s> WasmBackend<'s> {
                 } else {
                     code.i32c(0);
                 }
-                code.call(6);
+                code.call(import_index(name));
             }
             "pow" => {
                 for a in args.iter().take(2) {
                     self.lower_value_as(code, a, &Ty::scalar(TyKind::Double));
                 }
-                code.call(8);
+                code.call(import_index(name));
             }
             "sqrt" | "sin" | "cos" | "floor" | "ceil" => {
                 if let Some(a) = args.first() {
@@ -1571,20 +1578,12 @@ impl<'s> WasmBackend<'s> {
                     "sqrt" => code.op(0x9f, "f64.sqrt"),
                     "floor" => code.op(0x9c, "f64.floor"),
                     "ceil" => code.op(0x9b, "f64.ceil"),
-                    "sin" => code.call(9),
-                    _ => code.call(10),
+                    "sin" | "cos" => code.call(import_index(name)),
+                    _ => unreachable!(),
                 }
             }
-            "canOnline" => {
-                code.call(10);
-                code.i32c(0);
-            }
-            "canOffline" => {
-                code.call(11);
-                code.i32c(0);
-            }
-            "stopMeasurement" => {
-                code.call(12);
+            "canOnline" | "canOffline" | "stopMeasurement" => {
+                code.call(import_index(name));
                 code.i32c(0);
             }
             "elCount" => {
@@ -1832,6 +1831,7 @@ fn encoder_valtype(v: u8) -> we::ValType {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use capl_diag::Loc;
 
     #[test]
     fn encoder_instruction_bytes_match_wasm() {
@@ -1868,5 +1868,35 @@ mod tests {
         assert!(art.wat.contains("on_start"));
         assert!(art.wat.contains("call 0"));
         assert!(art.wat.contains("call 1"));
+    }
+
+    #[test]
+    fn builtin_host_calls_follow_import_table_indices() {
+        let expected = [
+            ("canOnline", 11),
+            ("canOffline", 12),
+            ("stopMeasurement", 13),
+        ];
+        for (name, index) in expected {
+            assert_eq!(import_index(name), index);
+        }
+
+        let sema = SemaResult::default();
+        let mut backend = WasmBackend::new(&sema);
+        let mut code = Code::new("test", vec![], None);
+        for (name, index) in expected {
+            let callee = Expr::new(
+                ExprKind::Ident {
+                    name: name.into(),
+                    sym: None,
+                },
+                Loc::default(),
+            );
+            backend.lower_call(&mut code, &callee, &[], None);
+            assert!(code
+                .wat
+                .iter()
+                .any(|line| line.trim() == format!("call {index}")));
+        }
     }
 }
