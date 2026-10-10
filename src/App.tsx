@@ -214,16 +214,16 @@ export default function App() {
               wasm
             </span>
           </div>
-          <div className="leading-tight">
+          <div className="min-w-0 leading-tight">
             <h1 className="text-[15px] font-bold tracking-tight text-ink">{t("title")}</h1>
-            <p className="text-[11px] text-muted">{t("tagline")}</p>
+            <p className="whitespace-nowrap text-[11px] text-muted">{t("tagline")}</p>
           </div>
           <div className="hidden items-center gap-1.5 xl:flex">
-            <span className="chip" title="compiler core">
+            <span className="chip whitespace-nowrap" title="compiler core">
               <Icon.chip className="h-3 w-3" />
               {t("coreRust")} v{core.version}
             </span>
-            <span className="chip" style={{ color: statusColor, borderColor: statusColor }}>
+            <span className="chip whitespace-nowrap" style={{ color: statusColor, borderColor: statusColor }}>
               ● {t(status as "statusReady")}
             </span>
           </div>

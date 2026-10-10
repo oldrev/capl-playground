@@ -1,0 +1,37 @@
+enum Mode { OFF, RUNNING = 4, FAULT, MAINTENANCE }
+
+struct Sensor {
+  char name[8];
+  int raw;
+  long scaled;
+  double factor;
+  byte status;
+}
+
+variables {
+  struct {
+    long matrix[3][4];
+    struct Sensor bank[2];
+  } bench;
+}
+
+long traceSum() {
+  long sum = 0;
+  int r, c;
+  for (r = 0; r < 3; r++)
+    for (c = 0; c < 4; c++)
+      sum += bench.matrix[r][c];
+  return sum;
+}
+
+on start {
+  enum Mode current = RUNNING;
+  bench.matrix[0][0] = 1;
+  bench.matrix[1][2] = 5;
+  bench.matrix[2][3] = 9;
+  bench.bank[0].raw = 1023;
+  bench.bank[0].scaled = 2046;
+  bench.bank[0].factor = 2.0;
+  bench.bank[0].status = 1;
+  write("mode=%d sum=%d", current, traceSum());
+}

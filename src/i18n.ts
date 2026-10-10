@@ -6,7 +6,7 @@ export type Lang = "en" | "zh";
 
 const en = {
   title: "CAPL Learning Lab",
-  tagline: "Learn CAPL syntax and run experiments in your browser",
+  tagline: "Learn CAPL. Run experiments.",
   core: "Core",
   coreRust: "capl-wasm (Rust)",
   run: "Run",
@@ -106,7 +106,7 @@ type Dict = typeof en;
 
 const zh: Dict = {
   title: "在线学习 CAPL 与实验",
-  tagline: "在浏览器中学习 CAPL 语法并进行在线实验",
+  tagline: "学习 CAPL，在线实验",
   core: "内核",
   coreRust: "capl-wasm（Rust）",
   run: "运行",

@@ -8,6 +8,7 @@ const PROGRAMS: &[(&str, &str)] = &[
     ("bus", include_str!("programs/bus.can")),
     ("algorithm", include_str!("programs/algorithm.can")),
     ("types", include_str!("programs/types.can")),
+    ("types_matrix", include_str!("programs/types_matrix.can")),
     ("state", include_str!("programs/state.can")),
     ("integration_complex", include_str!("programs/integration_complex.can")),
     ("expressions", include_str!("programs/expressions.can")),
@@ -87,6 +88,15 @@ fn enum_program_defines_constants_for_c_and_wasm() {
     assert!(c.contains("enum Mode"));
     assert!(c.contains("RUNNING = 4"));
     assert!(out.wasm.unwrap().wat.contains("i32.const 4"));
+}
+
+#[test]
+fn matrix_example_supports_anonymous_structs_and_enum_variables() {
+    let out = build("types_matrix", include_str!("programs/types_matrix.can"));
+    assert!(out.ok, "matrix fixture failed: {:?}", out.diagnostics);
+    let sema = out.sema.as_ref().expect("semantic result");
+    assert!(sema.structs.keys().any(|name| name.starts_with("__anon")));
+    assert!(out.wasm.as_ref().is_some_and(|wasm| wasm.wat.contains("on_start")));
 }
 
 #[test]

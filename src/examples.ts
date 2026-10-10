@@ -261,6 +261,12 @@ dword rol(dword value, dword amount)
   return (value << amount) | (value >> (32 - amount));
 }
 
+dword byteSwap(dword value)
+{
+  return ((value >> 24) & 0xFF) | ((value >> 8) & 0xFF00) |
+         ((value << 8) & 0xFF0000) | ((value << 24) & 0xFF000000);
+}
+
 int calculateMd5()
 {
   long n, index, shift;
@@ -285,9 +291,96 @@ on start
 {
   int match;
   match = calculateMd5();
-  write("MD5(\\\"abc\\\") calculated words: %x%x%x%x", result[0], result[1], result[2], result[3]);
+  write("MD5(\\\"abc\\\") calculated: %08x%08x%08x%08x", byteSwap(result[0]), byteSwap(result[1]), byteSwap(result[2]), byteSwap(result[3]));
   write("MD5(\\\"abc\\\") expected:         900150983cd24fb0d6963f7d28e17f72");
   if (match) write("MD5 check: MATCH"); else write("MD5 check: MISMATCH");
+}
+`,
+  },
+  {
+    id: "crc-counter",
+    title: { en: "CAN CRC + rolling counter", zh: "CAN CRC 与滚动计数器" },
+    code: `/* ── Protected CAN frame ─────────────────────────────
+   A realistic E2E-style frame: two signals, a rolling
+   counter and CRC-8. Press 'x' to corrupt the next frame. */
+
+variables
+{
+  message 0x300 protected;
+  msTimer txTimer;
+  long counter = 0;
+  int corruptNext = 0;
+}
+
+byte crc8()
+{
+  byte crc = 0xFF;
+  int i, bit;
+  for (i = 0; i < 7; i++)
+  {
+    crc = crc ^ protected.byte(i);
+    for (bit = 0; bit < 8; bit++)
+    {
+      if (crc & 0x80) crc = (crc << 1) ^ 0x1D;
+      else crc = crc << 1;
+    }
+  }
+  return crc;
+}
+
+void buildFrame()
+{
+  word rpm = 1200 + (counter * 250);
+  int temperature = 25 + counter;
+  protected.dlc = 8;
+  protected.byte(0) = (rpm >> 8) & 0xFF;
+  protected.byte(1) = rpm & 0xFF;
+  protected.byte(2) = temperature + 40;
+  protected.byte(3) = counter & 0x0F;
+  protected.byte(4) = 0xA5;
+  protected.byte(5) = 0;
+  protected.byte(6) = 0;
+  protected.byte(7) = crc8();
+  if (corruptNext) { protected.byte(4) = protected.byte(4) ^ 0x01; corruptNext = 0; }
+}
+
+on start
+{
+  write("0x300 protected frame: RPM + temperature + counter + CRC-8");
+  setTimerCyclic(txTimer, 100);
+}
+
+on timer txTimer
+{
+  counter++;
+  buildFrame();
+  output(protected);
+}
+
+on message 0x300
+{
+  word rpm;
+  int temperature;
+  byte receivedCrc;
+  byte calculatedCrc;
+  rpm = (this.byte(0) << 8) | this.byte(1);
+  temperature = this.byte(2) - 40;
+  receivedCrc = this.byte(7);
+  protected.dlc = this.dlc;
+  protected.byte(0) = this.byte(0); protected.byte(1) = this.byte(1);
+  protected.byte(2) = this.byte(2); protected.byte(3) = this.byte(3);
+  protected.byte(4) = this.byte(4); protected.byte(5) = this.byte(5);
+  protected.byte(6) = this.byte(6);
+  calculatedCrc = crc8();
+  write("0x300 rpm=%d temp=%dC counter=%d crc=%02X/%02X %s",
+        rpm, temperature, this.byte(3), calculatedCrc, receivedCrc,
+        calculatedCrc == receivedCrc ? "VALID" : "INVALID");
+}
+
+on key 'x'
+{
+  corruptNext = 1;
+  write("next 0x300 frame will be corrupted");
 }
 `,
   },

@@ -59,7 +59,8 @@ variables are covered. `enum` declarations and enum constants are connected
 through the Rust parser, semantic pass, C backend, and WebAssembly backend;
 enum values are represented as integer constants.
 
-Named structures and named fields are also supported:
+Named structures, anonymous structures in variable declarations, and named
+fields are supported:
 
 ```capl
 struct Sample {
@@ -71,6 +72,18 @@ variables { struct Sample state; }
 on start {
   state.count = 1;
   state.flags[0] = 0xAA;
+}
+```
+
+Structure arrays and multidimensional arrays can be combined, including an
+anonymous structure used as the variable type:
+
+```capl
+variables {
+  struct {
+    long matrix[3][4];
+    struct Sample bank[2];
+  } bench;
 }
 ```
 
@@ -159,8 +172,8 @@ When adding syntax:
 
 ## Explicit Non-Goals
 
-This project does not currently promise support for anonymous or packed
-structures, database signals, `$Signal`, test modules, the complete product
-API, every system-variable type, or Vector-tool-specific extensions. Aggregate
-boundaries use the documented address ABI rather than claiming compatibility
-with every CAPL by-value rule.
+This project does not currently promise support for packed structures, database
+signals, `$Signal`, test modules, the complete product API, every
+system-variable type, or Vector-tool-specific extensions. Aggregate boundaries
+use the documented address ABI rather than claiming compatibility with every
+CAPL by-value rule.

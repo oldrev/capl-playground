@@ -42,6 +42,15 @@ pub fn c_type(t: &Ty) -> String {
     }
 }
 
+fn c_array_decl(t: &Ty) -> (String, String) {
+    if t.kind == TyKind::Array {
+        let (base, suffix) = t.elem.as_deref().map(c_array_decl).unwrap_or_else(|| ("int32_t".into(), String::new()));
+        (base, format!("[{}]{}", t.len.unwrap_or(1), suffix))
+    } else {
+        (c_type(t), String::new())
+    }
+}
+
 pub struct CBackend<'s> {
     sema: &'s SemaResult,
     out: String,
@@ -79,8 +88,8 @@ impl<'s> CBackend<'s> {
                 if let Some(ty) = &s.ty { let _ = ty; }
                 for f in &s.fields {
                     let ty = c_type(&f.decl_ty);
-                    if f.dims.is_empty() { self.line(&format!("{} {};", ty, f.name)); }
-                    else { self.line(&format!("{} {}[{}];", ty, f.name, self.expr(&f.dims[0]))); }
+                    let dims = f.dims.iter().map(|d| format!("[{}]", self.expr(d))).collect::<String>();
+                    self.line(&format!("{} {}{};", ty, f.name, dims));
                 }
                 self.indent -= 1; self.line("};");
             }
@@ -96,7 +105,10 @@ impl<'s> CBackend<'s> {
                     v.name,
                     v.ty.msg_id.unwrap_or(0)
                 ),
-                TyKind::Array => format!("static {} {}[{}];", c_type(&v.ty), v.name, v.ty.len.unwrap_or(1)),
+                TyKind::Array => {
+                    let (ty, dims) = c_array_decl(&v.ty);
+                    format!("static {} {}{};", ty, v.name, dims)
+                }
                 TyKind::Struct => format!("static {} {};", c_type(&v.ty), v.name),
                 _ => format!("static {} {};", c_type(&v.ty), v.name),
             };
@@ -175,7 +187,12 @@ impl<'s> CBackend<'s> {
                 for d in decls {
                     let init = d.init.as_ref().map(|i| format!(" = {}", self.expr(i))).unwrap_or_default();
                     if d.is_array {
-                        self.line(&format!("{} {}[]{};", c_type(&d.decl_ty), d.name, init));
+                        let dims = if d.dims.is_empty() {
+                            "[]".to_string()
+                        } else {
+                            d.dims.iter().map(|dim| format!("[{}]", self.expr(dim))).collect::<String>()
+                        };
+                        self.line(&format!("{} {}{}{};", c_type(&d.decl_ty), d.name, dims, init));
                     } else {
                         self.line(&format!("{} {}{};", c_type(&d.decl_ty), d.name, init));
                     }

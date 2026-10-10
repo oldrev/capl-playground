@@ -33,11 +33,13 @@ pub struct Parser<'d> {
     toks: Vec<Token>,
     p: usize,
     diags: &'d mut DiagBag,
+    anon_struct_n: u32,
+    pending_structs: Vec<StructDecl>,
 }
 
 pub fn parse(src: &str, name: &str, diags: &mut DiagBag) -> Unit {
     let toks = Lexer::new(src, diags).collect_all();
-    Parser { toks, p: 0, diags }.unit(name)
+    Parser { toks, p: 0, diags, anon_struct_n: 0, pending_structs: Vec::new() }.unit(name)
 }
 
 impl<'d> Parser<'d> {
@@ -100,8 +102,24 @@ impl<'d> Parser<'d> {
     }
     fn type_ref(&mut self) -> Ty {
         if self.cur().is_kw("struct") {
-            self.bump();
+            let start = self.bump().loc;
+            if self.cur().is_punct("{") {
+                let name = format!("__anon{}", self.anon_struct_n);
+                self.anon_struct_n += 1;
+                let decl = self.struct_body(start, name.clone());
+                self.pending_structs.push(decl);
+                return Ty::named_struct(name);
+            }
             return Ty::named_struct(self.expect_ident());
+        }
+        if self.cur().is_kw("enum") {
+            // Enum values are represented as integer constants in the AST;
+            // consume the optional tag and use integer storage for the variable.
+            self.bump();
+            if self.cur().kind == TokKind::Ident {
+                self.bump();
+            }
+            return Ty::scalar(TyKind::Long);
         }
         self.ty()
     }
@@ -135,6 +153,9 @@ impl<'d> Parser<'d> {
         while !self.at_eof() {
             let before = self.p;
             if let Some(mut d) = self.top_level() {
+                for s in self.pending_structs.drain(..) {
+                    decls.push(Decl::Struct(s));
+                }
                 decls.append(&mut d);
             }
             if self.p == before {
@@ -146,7 +167,10 @@ impl<'d> Parser<'d> {
 
     fn top_level(&mut self) -> Option<Vec<Decl>> {
         let start = self.cur().loc;
-        if self.eat_kw("enum") {
+        if self.cur().is_kw("enum")
+            && (self.nth(1).is_punct("{") || (self.nth(1).kind == TokKind::Ident && self.nth(2).is_punct("{")))
+        {
+            self.bump();
             return Some(vec![Decl::Enum(self.enum_decl(start))]);
         }
         if self.cur().is_kw("struct") && self.nth(1).kind == TokKind::Ident && self.nth(2).is_punct("{") {
@@ -213,6 +237,10 @@ impl<'d> Parser<'d> {
 
     fn struct_decl(&mut self, start: Loc) -> StructDecl {
         let name = self.expect_ident();
+        self.struct_body(start, name)
+    }
+
+    fn struct_body(&mut self, start: Loc, name: String) -> StructDecl {
         self.expect("{");
         let mut fields = Vec::new();
         while !self.at_eof() && !self.cur().is_punct("}") {
@@ -220,7 +248,7 @@ impl<'d> Parser<'d> {
             let decl_ty = self.type_ref();
             let field_name = self.expect_ident();
             let mut dims = Vec::new();
-            if self.eat_punct("[") {
+            while self.eat_punct("[") {
                 if !self.cur().is_punct("]") { dims.push(self.assign_expr()); }
                 self.expect("]");
             }
@@ -326,7 +354,7 @@ impl<'d> Parser<'d> {
             let name = self.expect_ident();
             let mut is_array = false;
             let mut dims = Vec::new();
-            if self.eat_punct("[") {
+            while self.eat_punct("[") {
                 is_array = true;
                 if !self.cur().is_punct("]") {
                     dims.push(self.assign_expr());
@@ -781,5 +809,22 @@ mod tests {
         assert!(!bag.has_errors(), "{:?}", bag.items());
         assert!(matches!(&unit.decls[0], Decl::Struct(s) if s.name == "Pair" && s.fields.len() == 2));
         assert!(matches!(&unit.decls[1], Decl::Func(f) if f.params[0].decl_ty.kind == TyKind::Struct));
+    }
+
+    #[test]
+    fn parses_anonymous_structs_enum_variables_and_multidimensional_arrays() {
+        let mut bag = DiagBag::new();
+        let unit = parse(
+            "enum Mode { OFF, RUNNING = 4 } struct Sensor { long value; } variables { struct { long matrix[3][4]; struct Sensor bank[2]; } bench; } on start { enum Mode current = RUNNING; bench.matrix[1][2] = current; }",
+            "anonymous.can",
+            &mut bag,
+        );
+        assert!(!bag.has_errors(), "{:?}", bag.items());
+        assert!(unit.decls.iter().any(|decl| matches!(decl, Decl::Struct(s) if s.name.starts_with("__anon"))));
+        let Decl::Struct(anonymous) = unit.decls.iter().find(|decl| matches!(decl, Decl::Struct(s) if s.name.starts_with("__anon"))).unwrap() else { unreachable!() };
+        assert_eq!(anonymous.fields[0].dims.len(), 2);
+        let Decl::Handler(handler) = unit.decls.iter().find(|decl| matches!(decl, Decl::Handler(_))).unwrap() else { unreachable!() };
+        let StmtKind::Block { stmts } = &handler.body.kind else { unreachable!() };
+        assert!(matches!(&stmts[0].kind, StmtKind::Decl { decls } if decls[0].decl_ty.kind == TyKind::Long));
     }
 }

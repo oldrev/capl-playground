@@ -604,7 +604,7 @@ impl<'s> WasmBackend<'s> {
             ExprKind::Call { callee, args, sym } => self.lower_call(code, callee, args, *sym),
             ExprKind::Index { base, index } => {
                 let elem = base.ty.as_ref().and_then(|t| t.elem.as_ref()).map(|t| (**t).clone()).unwrap_or_else(default_ty);
-                if base.ty.as_ref().is_some_and(|t| t.kind == TyKind::Array) && matches!(base.kind, ExprKind::Member { .. }) {
+                if base.ty.as_ref().is_some_and(|t| matches!(t.kind, TyKind::Array | TyKind::Struct)) {
                     self.lower_aggregate_addr(code, base);
                 } else {
                     self.lower_value(code, base);
@@ -613,7 +613,9 @@ impl<'s> WasmBackend<'s> {
                 code.i32c(elem.size_of() as i32);
                 code.op(0x6c, "i32.mul");
                 code.op(0x6a, "i32.add");
-                self.load_mem(code, &elem);
+                if !matches!(elem.kind, TyKind::Array | TyKind::Struct) {
+                    self.load_mem(code, &elem);
+                }
             }
             ExprKind::Member { base, name } => {
                 if let Some((off, ty)) = base.ty.as_ref().and_then(|t| self.struct_field(t, name)) {
@@ -746,7 +748,12 @@ impl<'s> WasmBackend<'s> {
         if let ExprKind::Index { base, index } = &target.kind {
             let elem = base.ty.as_ref().and_then(|t| t.elem.as_ref()).map(|t| (**t).clone()).unwrap_or_else(|| Ty::scalar(TyKind::Long));
             self.lower_value_as(code, value, &elem); let tmp = code.local(vt(&elem)); code.set_local(tmp);
-            self.lower_value(code, base); self.lower_value_as(code, index, &default_ty()); code.i32c(elem.size_of() as i32); code.op(0x6c, "i32.mul"); code.op(0x6a, "i32.add"); code.get_local(tmp); self.store_mem(code, &elem); code.get_local(tmp); return;
+            if base.ty.as_ref().is_some_and(|t| matches!(t.kind, TyKind::Array | TyKind::Struct)) {
+                self.lower_aggregate_addr(code, base);
+            } else {
+                self.lower_value(code, base);
+            }
+            self.lower_value_as(code, index, &default_ty()); code.i32c(elem.size_of() as i32); code.op(0x6c, "i32.mul"); code.op(0x6a, "i32.add"); code.get_local(tmp); self.store_mem(code, &elem); code.get_local(tmp); return;
         }
         let ExprKind::Ident { sym: Some(id), .. } = target.kind else { self.lower_value(code, value); return };
         let ty = self.sema.var(id).map(|v| v.ty.clone()).unwrap_or_else(default_ty);
@@ -773,6 +780,14 @@ impl<'s> WasmBackend<'s> {
             ExprKind::Member { base, name } => {
                 let (off, _) = base.ty.as_ref().and_then(|t| self.struct_field(t, name)).unwrap_or((0, default_ty()));
                 self.emit_struct_addr(code, base, off);
+            }
+            ExprKind::Index { base, index } => {
+                let elem = base.ty.as_ref().and_then(|t| t.elem.as_ref()).map(|t| (**t).clone()).unwrap_or_else(default_ty);
+                self.lower_aggregate_addr(code, base);
+                self.lower_value_as(code, index, &default_ty());
+                code.i32c(elem.size_of() as i32);
+                code.op(0x6c, "i32.mul");
+                code.op(0x6a, "i32.add");
             }
             _ => self.lower_value(code, expr),
         }
@@ -930,14 +945,12 @@ impl<'s> WasmBackend<'s> {
         layout.members.iter().find(|m| m.name == name).map(|m| (m.offset, m.ty.clone()))
     }
 
-    fn emit_struct_addr(&self, code: &mut Code, base: &Expr, offset: u32) {
-        let ExprKind::Ident { sym: Some(id), .. } = base.kind else { code.i32c(0); return };
-        if let Some(slot) = self.slots.get(&id) {
-            code.get_local(*slot);
-            if offset != 0 { code.i32c(offset as i32); code.op(0x6a, "i32.add"); }
-        } else if let Some(addr) = self.global_addr.get(&id).or_else(|| self.static_addr.get(&id)) {
-            code.i32c((*addr + offset) as i32);
-        } else { code.i32c(0); }
+    fn emit_struct_addr(&mut self, code: &mut Code, base: &Expr, offset: u32) {
+        self.lower_aggregate_addr(code, base);
+        if offset != 0 {
+            code.i32c(offset as i32);
+            code.op(0x6a, "i32.add");
+        }
     }
 
     fn member_offset(&self, name: &str) -> Option<u32> { match name { "id" => Some(0), "dlc" => Some(4), "can" => Some(16), "dir" => Some(20), "rtr" => Some(24), "time" => Some(28), "byte" | "word" | "dword" | "long" | "qword" => Some(8), _ => None } }

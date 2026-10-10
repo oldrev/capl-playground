@@ -208,8 +208,8 @@ impl<'d> Sema<'d> {
                     let mut members = Vec::new();
                     for field in &s.fields {
                         let mut ty = self.resolve_type(&field.decl_ty);
-                        if !field.dims.is_empty() {
-                            let len = self.const_fold(&field.dims[0]).unwrap_or(0).max(0) as u32;
+                        for dim in field.dims.iter().rev() {
+                            let len = self.const_fold(dim).unwrap_or(0).max(0) as u32;
                             if len == 0 { self.diags.error(Stage::Sema, field.loc, "struct array field requires a positive constant length"); }
                             ty = Ty::array(ty, len.max(1));
                         }
@@ -309,16 +309,25 @@ impl<'d> Sema<'d> {
     fn declare_var(&mut self, v: &mut VarDecl, storage: Storage) {
         let mut ty = self.resolve_type(&v.decl_ty);
         if v.is_array {
-            let len = match (v.dims.first(), &v.init) {
-                (Some(e), _) => self.const_fold(e).unwrap_or(0).max(0) as u32,
-                (None, Some(Expr { kind: ExprKind::InitList { items }, .. })) => items.len() as u32,
-                (None, Some(Expr { kind: ExprKind::StrLit { value }, .. })) => value.len() as u32 + 1,
-                _ => 0,
-            };
-            if len == 0 {
-                self.diags.error(Stage::Sema, v.loc, format!("cannot deduce the length of array '{}'", v.name));
+            if v.dims.is_empty() {
+                let len = match &v.init {
+                    Some(Expr { kind: ExprKind::InitList { items }, .. }) => items.len() as u32,
+                    Some(Expr { kind: ExprKind::StrLit { value }, .. }) => value.len() as u32 + 1,
+                    _ => 0,
+                };
+                if len == 0 {
+                    self.diags.error(Stage::Sema, v.loc, format!("cannot deduce the length of array '{}'", v.name));
+                }
+                ty = Ty::array(ty, len.max(1));
+            } else {
+                for dim in v.dims.iter().rev() {
+                    let len = self.const_fold(dim).unwrap_or(0).max(0) as u32;
+                    if len == 0 {
+                        self.diags.error(Stage::Sema, v.loc, format!("array '{}' requires positive constant dimensions", v.name));
+                    }
+                    ty = Ty::array(ty, len.max(1));
+                }
             }
-            ty = Ty::array(v.decl_ty.clone(), len.max(1));
         }
         let timer_id = if matches!(ty.kind, TyKind::Timer | TyKind::MsTimer) {
             let id = self.timer_counter;
