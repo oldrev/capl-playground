@@ -312,6 +312,7 @@ ast_node! {
 #[cfg_attr(feature = "json", derive(Serialize))]
 #[cfg_attr(feature = "json", serde(tag = "kind"))]
 pub enum Decl {
+    Enum(EnumDecl),
     Variables { decls: Vec<VarDecl>, loc: Loc },
     Includes { text: String, loc: Loc },
     Func(FuncDecl),
@@ -348,6 +349,7 @@ pub trait Visitor {
     }
     fn visit_decl(&mut self, d: &Decl) {
         match d {
+            Decl::Enum(_) => {}
             Decl::Func(f) => self.visit_stmt(&f.body),
             Decl::Handler(h) => self.visit_stmt(&h.body),
             Decl::Variables { decls, .. } => {

@@ -138,6 +138,9 @@ impl<'d> Parser<'d> {
 
     fn top_level(&mut self) -> Option<Vec<Decl>> {
         let start = self.cur().loc;
+        if self.eat_kw("enum") {
+            return Some(vec![Decl::Enum(self.enum_decl(start))]);
+        }
         if self.eat_kw("includes") {
             let text = self.skip_block();
             return Some(vec![Decl::Includes { text, loc: self.span(start) }]);
@@ -173,6 +176,22 @@ impl<'d> Parser<'d> {
         self.diags.error(Stage::Parse, loc, format!("unexpected '{found}' at top level"));
         self.resync();
         None
+    }
+
+    fn enum_decl(&mut self, start: Loc) -> EnumDecl {
+        let name = if self.cur().kind == TokKind::Ident { self.bump().text } else { String::new() };
+        self.expect("{");
+        let mut items = Vec::new();
+        while !self.at_eof() && !self.cur().is_punct("}") {
+            let loc = self.cur().loc;
+            let item_name = self.expect_ident();
+            let init = if self.eat_punct("=") { Some(self.assign_expr()) } else { None };
+            items.push(EnumItem { name: item_name, init, resolved: 0, loc });
+            if !self.eat_punct(",") { break; }
+        }
+        self.expect("}");
+        self.eat_punct(";");
+        EnumDecl { name, items, loc: self.span(start) }
     }
 
     fn resync(&mut self) {

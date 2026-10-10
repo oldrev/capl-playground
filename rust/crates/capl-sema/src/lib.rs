@@ -45,6 +45,7 @@ pub struct FuncSym {
 pub enum Sym {
     Var(VarSym),
     Func(FuncSym),
+    EnumConst(i64),
 }
 
 #[derive(Debug, Default)]
@@ -67,6 +68,13 @@ impl SemaResult {
     pub fn func(&self, id: SymId) -> Option<&FuncSym> {
         match self.syms.get(id as usize) {
             Some(Sym::Func(f)) => Some(f),
+            _ => None,
+        }
+    }
+
+    pub fn enum_const(&self, id: SymId) -> Option<i64> {
+        match self.syms.get(id as usize) {
+            Some(Sym::EnumConst(value)) => Some(*value),
             _ => None,
         }
     }
@@ -166,6 +174,15 @@ impl<'d> Sema<'d> {
         let mut funcs: Vec<usize> = Vec::new();
         for (i, decl) in unit.decls.iter_mut().enumerate() {
             match decl {
+                Decl::Enum(e) => {
+                    let mut next = 0;
+                    for item in &mut e.items {
+                        let value = item.init.as_ref().and_then(|expr| self.const_fold(expr)).unwrap_or(next);
+                        item.resolved = value;
+                        self.declare(&item.name, Sym::EnumConst(value), item.loc);
+                        next = value.saturating_add(1);
+                    }
+                }
                 Decl::Variables { decls, .. } => {
                     for v in decls.iter_mut() {
                         Self::declare_var(&mut self, v, Storage::Global);
@@ -402,6 +419,7 @@ impl<'d> Sema<'d> {
                     match &self.out.syms[id as usize] {
                         Sym::Var(v) => v.ty.clone(),
                         Sym::Func(_) => Ty::scalar(TyKind::Error),
+                        Sym::EnumConst(_) => Ty::scalar(TyKind::Long),
                     }
                 }
                 None => {
@@ -536,6 +554,10 @@ impl<'d> Sema<'d> {
                     "^" => l ^ r,
                     _ => return None,
                 })
+            }
+            ExprKind::Ident { name, sym } => {
+                let id = sym.or_else(|| self.lookup(name))?;
+                self.out.enum_const(id)
             }
             _ => None,
         }

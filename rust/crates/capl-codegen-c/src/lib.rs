@@ -71,6 +71,17 @@ impl<'s> CBackend<'s> {
     pub fn emit(mut self, unit: &Unit) -> String {
         self.out.push_str(PREAMBLE);
         self.line("");
+        for decl in &unit.decls {
+            if let Decl::Enum(e) = decl {
+                self.line(&format!("enum {} {{", if e.name.is_empty() { "CaplAnonEnum" } else { &e.name }));
+                self.indent += 1;
+                for item in &e.items {
+                    self.line(&format!("{} = {},", item.name, item.resolved));
+                }
+                self.indent -= 1;
+                self.line("};");
+            }
+        }
         for &id in &self.sema.globals {
             let Some(v) = self.sema.var(id) else { continue };
             let decl = match v.ty.kind {

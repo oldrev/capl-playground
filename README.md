@@ -127,11 +127,8 @@ a runtime trap instead.
 
 `variables{}` blocks (which may also define types) · globals · `const` · arrays
 and brace initialisers · `byte word dword qword int long int64 float double char`
-· **`enum`** with implicit and explicit values, usable directly in `switch`
-labels · **`struct`** with computed member layout — offsets, natural alignment
-and trailing padding are worked out by `capl-sema` and carried *inside the type*,
-so no backend needs a symbol table · **multi-dimensional arrays**, arrays of
-structs and struct members of array type · message objects with
+· scalar types and **arrays**, including brace initialisers and multi-dimensional
+indexing · message objects with
 `.id .dlc .can .byte(n) .word(n) .dword(n)` and `this` · `timer`/`msTimer` ·
 events `preStart start stopMeasurement preStop timer message key sysvar envVar
 errorFrame busOff` (with channel-aware matching for `on message CAN2.0x100`) ·
@@ -143,12 +140,13 @@ assignment · user functions with recursion and array parameters · built-ins
 `canOffline`, `stopMeasurement`.
 
 Local aggregates are cleared on declaration by the generated `__zero` helper,
-which keeps examples reproducible. Compile-time constants (enum members,
-`const int N = 3`) are folded into immediates and never occupy linear memory.
+which keeps examples reproducible. Compile-time constants such as `const int N
+= 3` are folded into immediates and never occupy linear memory.
 
-Not implemented: `includes{}`, database signal access (`$Signal`), test modules,
-passing or returning aggregates by value, and whole-struct assignment (the
-diagnostic tells you to copy member by member).
+`enum` and `struct` are currently lexer/AST reservation points rather than
+supported source declarations. Not implemented: `includes{}`, database signal
+access (`$Signal`), test modules, passing or returning aggregates by value, and
+whole-struct assignment.
 
 ## UI
 

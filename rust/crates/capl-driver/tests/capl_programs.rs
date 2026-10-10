@@ -70,6 +70,16 @@ fn algorithm_program_uses_native_64_bit_and_float_instructions() {
 }
 
 #[test]
+fn enum_program_defines_constants_for_c_and_wasm() {
+    let out = build("types", include_str!("programs/types.can"));
+    assert!(out.ok, "enum fixture failed: {:?}", out.diagnostics);
+    let c = out.c.expect("C artifact");
+    assert!(c.contains("enum Mode"));
+    assert!(c.contains("RUNNING = 4"));
+    assert!(out.wasm.unwrap().wat.contains("i32.const 4"));
+}
+
+#[test]
 fn state_program_covers_key_handlers_and_timer_cancellation() {
     let out = build("state", include_str!("programs/state.can"));
     assert_eq!(handler_count(&out), 5);

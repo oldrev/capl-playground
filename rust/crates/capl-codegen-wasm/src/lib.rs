@@ -397,6 +397,11 @@ impl<'s> WasmBackend<'s> {
     }
 
     fn collect_consts(&mut self, unit: &Unit) {
+        for (id, sym) in self.sema.syms.iter().enumerate() {
+            if let capl_sema::Sym::EnumConst(value) = sym {
+                self.consts.insert(id as SymId, *value);
+            }
+        }
         for decl in &unit.decls {
             let vars = match decl { Decl::Var(v) => std::slice::from_ref(v), Decl::Variables { decls, .. } => decls.as_slice(), _ => &[] };
             for v in vars {
