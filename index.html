@@ -11,6 +11,13 @@
   </head>
   <body>
     <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
+    <script type="module">
+      const wasmPath = ["%BASE_URL%", "capl/capl_wasm.js"].join("");
+      window.__CAPL_WASM_READY__ = (async () => {
+        const { default: init } = await import(/* @vite-ignore */ wasmPath);
+        await init();
+      })();
+    </script>
+    <script type="module" src="%BASE_URL%src/main.tsx"></script>
   </body>
 </html>

@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import type { Diagnostic } from "../core/diagnostics";
+import type { Diagnostic } from "../core/driver";
 import type { BusFrame, LogEntry } from "../runtime/sim";
 
 /* ── tiny icon set ──────────────────────────────────────── */

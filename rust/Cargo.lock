@@ -32,6 +32,7 @@ version = "0.4.0"
 dependencies = [
  "capl-ast",
  "capl-diag",
+ "capl-parse",
  "capl-sema",
 ]
 
@@ -83,8 +84,10 @@ dependencies = [
 name = "capl-wasm"
 version = "0.4.0"
 dependencies = [
+ "capl-ast",
  "capl-diag",
  "capl-driver",
+ "capl-lexer",
  "console_error_panic_hook",
  "js-sys",
  "serde",

@@ -1,8 +1,7 @@
 /* capl-rt (host half) — a miniature CANoe measurement running the module that
  * the wasm backend produced. Virtual time, timer queue, bus, key events. */
 
-import type { WasmArtifact } from "../core/backend/wasm";
-import type { EventSpec, HandlerDecl, VarSym } from "../core/ast";
+import type { HandlerInfo, TimerInfo, WasmArtifact } from "../core/driver";
 
 export type LogKind = "write" | "info" | "event" | "error" | "bus";
 
@@ -19,16 +18,6 @@ export interface BusFrame {
   data: number[];
   dir: "Tx" | "Rx";
   channel: number;
-}
-
-export interface HandlerInfo {
-  exportName: string;
-  event: EventSpec;
-}
-
-export interface TimerInfo {
-  id: number;
-  name: string;
 }
 
 interface SimEvent {
@@ -77,14 +66,14 @@ export class CaplSim {
 
   static async create(
     art: WasmArtifact,
-    handlers: HandlerDecl[],
-    timers: VarSym[],
+    handlers: HandlerInfo[],
+    timers: TimerInfo[],
     hooks: SimHooks = {},
   ): Promise<CaplSim> {
     const sim = new CaplSim(
       art,
-      handlers.map((h) => ({ exportName: h.exportName!, event: h.event })),
-      timers.map((t) => ({ id: t.timerId ?? 0, name: t.name })),
+      handlers.map((h) => ({ exportName: h.exportName, event: h.event })),
+      timers.map((t) => ({ id: t.id, name: t.name })),
       hooks,
     );
     await sim.instantiate();
@@ -114,9 +103,11 @@ export class CaplSim {
         },
       },
     };
-    const { instance } = await WebAssembly.instantiate(this.art.bytes.slice().buffer as ArrayBuffer, imports);
-    this.instance = instance;
-    this.mem = instance.exports.memory as WebAssembly.Memory;
+    const bytes = this.art.bytes instanceof Uint8Array ? this.art.bytes : Uint8Array.from(this.art.bytes);
+    const instantiated = await WebAssembly.instantiate(bytes, imports);
+    const source = instantiated as WebAssembly.WebAssemblyInstantiatedSource | WebAssembly.Instance;
+    this.instance = "instance" in source ? source.instance : source;
+    this.mem = this.instance.exports.memory as WebAssembly.Memory;
   }
 
   private get u8(): Uint8Array {

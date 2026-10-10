@@ -5,6 +5,9 @@ node_modules/
 dist/
 *.local
 
+# Generated Rust compiler bundle
+public/capl/
+
 # Environment files
 .env
 .env.*
@@ -29,4 +32,3 @@ pnpm-debug.log*
 # OS-generated files
 .DS_Store
 Thumbs.db
-

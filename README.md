@@ -33,11 +33,9 @@ useful: take `capl-lexer` for an editor, `capl-parse` for a linter,
 ## Repository layout
 
 ```
-src/                      the playground (React + Vite + Tailwind v4)
-  core/                   TypeScript mirror of the Rust crates
-    lexer.ts  parser.ts  sema.ts  ast.ts  driver.ts
-    backend/wasm.ts       WebAssembly binary encoder + code generator
-    backend/c.ts          C99 emitter
+src/                      the playground UI (React + Vite + Tailwind v4)
+  core/                   Rust WASM bridge and editor-only syntax lexer
+    driver.ts             frontend contract for capl-wasm
   runtime/sim.ts          the simulated CANoe measurement (host imports)
   components/             editor, panels, architecture tab
 rust/                     the compiler core as reusable crates
@@ -52,13 +50,11 @@ rust/                     the compiler core as reusable crates
   crates/capl-wasm        wasm-bindgen facade for this page
 ```
 
-### Two cores, one interface
+### Rust compiler, TypeScript UI
 
-The page asks `getCore()` for a compiler. If a Rust build has been loaded it
-registers itself on `globalThis.__CAPL_CORE__` and is used; otherwise the
-TypeScript mirror in `src/core/` takes over. Both implement the same pipeline
-and the same result shape, so the UI cannot tell them apart — the badge in the
-header shows which one is live.
+The page loads `capl-wasm` before React starts. It registers the sole compiler
+implementation on `globalThis.__CAPL_CORE__`; TypeScript only owns the editor,
+simulation host and presentation layer.
 
 ```bash
 ./rust/build-wasm.sh          # wasm-pack build → public/capl/capl_wasm.js
@@ -134,3 +130,19 @@ diagnostic tells you to copy member by member).
   pending-timer inspector
 
 Keyboard: `Ctrl`/`⌘` + `Enter` builds and runs.
+
+## Disclaimer
+
+CAPL Playground is an independent, experimental compatibility and teaching
+project. It is not sponsored, endorsed, affiliated with, or derived from
+Vector Informatik GmbH, CANoe, CANalyzer, or any other Vector product. “Vector”,
+“CAPL”, “CANoe”, and “CANalyzer” are names and trademarks of their respective
+owners and are used here only to identify the language or behavior this project
+aims to interoperate with. This project does not include Vector software,
+proprietary databases, documentation, or test assets, and it does not claim to
+implement the official CAPL toolchain.
+
+Use of this project is at your own risk. You are responsible for checking the
+licenses and terms that apply to any source code, specifications, examples,
+trademarks, reverse-engineering activity, and deployment environment involved
+in your use of it. This notice is informational and is not legal advice.

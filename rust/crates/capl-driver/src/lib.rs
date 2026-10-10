@@ -67,35 +67,39 @@ pub struct Output {
     pub ok: bool,
     pub diagnostics: Vec<Diagnostic>,
     pub ast_json: String,
+    pub unit: Option<Unit>,
+    pub sema: Option<SemaResult>,
     pub c: Option<String>,
     #[cfg(feature = "wasm-backend")]
     pub wasm: Option<WasmArtifact>,
     pub timings: Timings,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+fn clock_us() -> u128 {
+    static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+    START.get_or_init(std::time::Instant::now).elapsed().as_micros()
+}
+
+#[cfg(target_arch = "wasm32")]
+fn clock_us() -> u128 { 0 }
+
 /// Run lex → parse → sema → backends.
 pub fn compile(src: &str, opts: Options) -> Output {
     let mut diags = DiagBag::new();
     let mut out = Output::default();
 
-    let t0 = std::time::Instant::now();
+    let t0 = clock_us();
     let mut unit = capl_parse::parse(src, &opts.file_name, &mut diags);
-    out.timings.parse_us = t0.elapsed().as_micros();
+    out.timings.parse_us = clock_us().saturating_sub(t0);
 
-    let t1 = std::time::Instant::now();
+    let t1 = clock_us();
     let sema = capl_sema::analyze(&mut unit, &mut diags);
-    out.timings.sema_us = t1.elapsed().as_micros();
+    out.timings.sema_us = clock_us().saturating_sub(t1);
 
-    #[cfg(feature = "json")]
-    {
-        out.ast_json = unit.to_json_string();
-    }
-    #[cfg(not(feature = "json"))]
-    {
-        out.ast_json = unit.to_json_string();
-    }
+    out.ast_json = unit.to_json_string();
 
-    let t2 = std::time::Instant::now();
+    let t2 = clock_us();
     if !diags.has_errors() {
         #[cfg(feature = "c-backend")]
         if opts.backends.contains(&BackendId::C) {
@@ -106,9 +110,11 @@ pub fn compile(src: &str, opts: Options) -> Output {
             out.wasm = Some(WasmBackend::new(&sema).emit(&unit, &mut diags));
         }
     }
-    out.timings.codegen_us = t2.elapsed().as_micros();
+    out.timings.codegen_us = clock_us().saturating_sub(t2);
 
     out.ok = !diags.has_errors();
     out.diagnostics = diags.items().to_vec();
+    out.sema = Some(sema);
+    out.unit = Some(unit);
     out
 }

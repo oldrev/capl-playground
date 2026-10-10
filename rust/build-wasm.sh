@@ -31,13 +31,8 @@ echo "  → target/release/capl"
 
 cat <<'EOF'
 
-Done. The playground picks the Rust core up automatically: add
-
-  <script type="module">
-    import init from "/capl/capl_wasm.js";
-    await init();            // registers globalThis.__CAPL_CORE__
-  </script>
-
-to index.html before the app bundle. Without it the page falls back to the
-TypeScript mirror in src/core/, which implements the exact same pipeline.
+Done. The playground's index page loads the generated Rust bundle from
+public/capl/capl_wasm.js before React starts. TypeScript remains the UI layer;
+there is no compiler fallback, and a missing Rust bundle is reported as a load
+failure.
 EOF

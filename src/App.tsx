@@ -5,7 +5,7 @@ import { BusTable, CodeView, Console, Diagnostics, Icon, JsonTree, fmtTime } fro
 import { EXAMPLES } from "./examples";
 import { detectLang, makeT, type Lang } from "./i18n";
 import { getCore, type CompileResult } from "./core/driver";
-import type { WasmArtifact } from "./core/backend/wasm";
+import type { WasmArtifact } from "./core/driver";
 import { CaplSim, type BusFrame, type LogEntry } from "./runtime/sim";
 
 type Theme = "light" | "dark" | "system";
@@ -223,7 +223,7 @@ export default function App() {
         <div className="hidden items-center gap-1.5 xl:flex">
           <span className="chip" title="compiler core">
             <Icon.chip className="h-3 w-3" />
-            {core.id === "rust-wasm" ? t("coreRust") : t("coreTs")} v{core.version}
+            {t("coreRust")} v{core.version}
           </span>
           <span className="chip" style={{ color: statusColor, borderColor: statusColor }}>
             ● {t(status as "statusReady")}
@@ -370,7 +370,10 @@ export default function App() {
               {tab === "wasm" && result?.wasm && (
                 <button
                   className="btn btn-ghost px-2 py-1"
-                  onClick={() => download("source.wasm", result.wasm!.bytes.slice().buffer as ArrayBuffer, "application/wasm")}
+                  onClick={() => {
+                    const bytes = result.wasm!.bytes instanceof Uint8Array ? result.wasm!.bytes : Uint8Array.from(result.wasm!.bytes);
+                    download("source.wasm", bytes.buffer as ArrayBuffer, "application/wasm");
+                  }}
                 >
                   <Icon.download className="h-3.5 w-3.5" />
                 </button>

@@ -9,3 +9,6 @@ description = "WebAssembly backend for the CAPL compiler: emits a complete wasm 
 capl-diag.workspace = true
 capl-ast.workspace = true
 capl-sema.workspace = true
+
+[dev-dependencies]
+capl-parse.workspace = true
