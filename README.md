@@ -150,8 +150,6 @@ treated as supported just because their keywords are recognized by the lexer:
 
 - `includes` in browser builds, where there is no filesystem include resolver;
   the native driver supports relative files and `CAPL_INCLUDE_PATH`.
-- Full enum typing, scoped enumerators, and enum compatibility rules beyond the
-  current global constant support.
 - Anonymous structs, recursive layouts, packing/bit-fields, and full CAPL
   layout compatibility beyond the current named-field subset.
 - Database-backed objects and signal access such as `$Signal`, including

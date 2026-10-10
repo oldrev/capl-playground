@@ -113,13 +113,9 @@ impl<'d> Parser<'d> {
             return Ty::named_struct(self.expect_ident());
         }
         if self.cur().is_kw("enum") {
-            // Enum values are represented as integer constants in the AST;
-            // consume the optional tag and use integer storage for the variable.
             self.bump();
-            if self.cur().kind == TokKind::Ident {
-                self.bump();
-            }
-            return Ty::scalar(TyKind::Long);
+            let name = self.expect_ident();
+            return Ty::named_enum(name);
         }
         self.ty()
     }
@@ -227,7 +223,7 @@ impl<'d> Parser<'d> {
             let loc = self.cur().loc;
             let item_name = self.expect_ident();
             let init = if self.eat_punct("=") { Some(self.assign_expr()) } else { None };
-            items.push(EnumItem { name: item_name, init, resolved: 0, loc });
+            items.push(EnumItem { name: item_name, init, resolved: 0, ty: None, loc });
             if !self.eat_punct(",") { break; }
         }
         self.expect("}");
@@ -711,7 +707,13 @@ impl<'d> Parser<'d> {
             }
             TokKind::Ident => {
                 self.p += 1;
-                Expr::new(ExprKind::Ident { name: t.text, sym: None }, self.span(start))
+                let mut name = t.text;
+                while self.eat_punct("::") {
+                    let part = self.expect_ident();
+                    name.push_str("::");
+                    name.push_str(&part);
+                }
+                Expr::new(ExprKind::Ident { name, sym: None }, self.span(start))
             }
             TokKind::Keyword if t.text == "this" => {
                 self.p += 1;
@@ -825,6 +827,6 @@ mod tests {
         assert_eq!(anonymous.fields[0].dims.len(), 2);
         let Decl::Handler(handler) = unit.decls.iter().find(|decl| matches!(decl, Decl::Handler(_))).unwrap() else { unreachable!() };
         let StmtKind::Block { stmts } = &handler.body.kind else { unreachable!() };
-        assert!(matches!(&stmts[0].kind, StmtKind::Decl { decls } if decls[0].decl_ty.kind == TyKind::Long));
+        assert!(matches!(&stmts[0].kind, StmtKind::Decl { decls } if decls[0].decl_ty.kind == TyKind::Enum && decls[0].decl_ty.name.as_deref() == Some("Mode")));
     }
 }

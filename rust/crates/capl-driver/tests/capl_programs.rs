@@ -91,6 +91,18 @@ fn enum_program_defines_constants_for_c_and_wasm() {
 }
 
 #[test]
+fn variable_initializer_reads_a_published_global_symbol() {
+    let source = "variables { int b = a; int a = 42; } on start { int local = a; }";
+    let out = build("initializer_bindings", source);
+    assert!(out.ok, "initializer fixture failed: {:?}", out.diagnostics);
+
+    let wasm = out.wasm.expect("wasm artifact");
+    let a_addr = wasm.layout.iter().find(|entry| entry.name == "a").expect("global a layout").addr;
+    let load = format!("i32.const {a_addr}\n    i32.load16_s");
+    assert!(wasm.wat.contains(&load), "local initializer did not load global a:\n{}", wasm.wat);
+}
+
+#[test]
 fn matrix_example_supports_anonymous_structs_and_enum_variables() {
     let out = build("types_matrix", include_str!("programs/types_matrix.can"));
     assert!(out.ok, "matrix fixture failed: {:?}", out.diagnostics);

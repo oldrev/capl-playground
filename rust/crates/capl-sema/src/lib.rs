@@ -49,10 +49,24 @@ pub struct StructLayout {
 }
 
 #[derive(Clone, Debug)]
+pub struct EnumVariant {
+    pub name: String,
+    pub value: i64,
+}
+
+#[derive(Clone, Debug)]
+pub struct EnumLayout {
+    pub name: String,
+    pub variants: Vec<EnumVariant>,
+    pub size: u32,
+}
+
+#[derive(Clone, Debug)]
 pub enum Sym {
     Var(VarSym),
     Func(FuncSym),
-    EnumConst(i64),
+    Enum(EnumLayout),
+    EnumConst { value: i64, ty: Ty },
     Struct(StructLayout),
 }
 
@@ -65,6 +79,7 @@ pub struct SemaResult {
     /// locals per function/handler export name, in declaration order
     pub locals: HashMap<String, Vec<SymId>>,
     pub structs: HashMap<String, StructLayout>,
+    pub enums: HashMap<String, EnumLayout>,
 }
 
 impl SemaResult {
@@ -83,7 +98,14 @@ impl SemaResult {
 
     pub fn enum_const(&self, id: SymId) -> Option<i64> {
         match self.syms.get(id as usize) {
-            Some(Sym::EnumConst(value)) => Some(*value),
+            Some(Sym::EnumConst { value, .. }) => Some(*value),
+            _ => None,
+        }
+    }
+
+    pub fn enum_const_ty(&self, id: SymId) -> Option<Ty> {
+        match self.syms.get(id as usize) {
+            Some(Sym::EnumConst { ty, .. }) => Some(ty.clone()),
             _ => None,
         }
     }
@@ -179,14 +201,54 @@ impl<'d> Sema<'d> {
     }
 
     fn resolve_type(&self, ty: &Ty) -> Ty {
-        if ty.kind != TyKind::Struct {
-            return ty.clone();
-        }
         let mut resolved = ty.clone();
-        if let Some(name) = &ty.name {
-            resolved.size = self.out.structs.get(name).map(|s| s.size);
+        match ty.kind {
+            TyKind::Struct => {
+                if let Some(name) = &ty.name {
+                    resolved.size = self.out.structs.get(name).map(|s| s.size);
+                }
+            }
+            TyKind::Enum => {
+                if let Some(name) = &ty.name {
+                    resolved.size = self.out.enums.get(name).map(|e| e.size);
+                }
+            }
+            _ => {}
         }
         resolved
+    }
+
+    fn validate_type(&mut self, ty: &Ty, loc: Loc) {
+        match ty.kind {
+            TyKind::Struct => {
+                if let Some(name) = &ty.name {
+                    if !self.out.structs.contains_key(name) {
+                        self.diags.error(Stage::Sema, loc, format!("unknown struct type '{name}'"));
+                    }
+                }
+            }
+            TyKind::Enum => {
+                if let Some(name) = &ty.name {
+                    if !self.out.enums.contains_key(name) {
+                        self.diags.error(Stage::Sema, loc, format!("unknown enum type '{name}'"));
+                    }
+                }
+            }
+            TyKind::Array => {
+                if let Some(elem) = &ty.elem { self.validate_type(elem, loc); }
+            }
+            _ => {}
+        }
+    }
+
+    fn check_enum_compat(&mut self, expected: &Ty, actual: &Ty, loc: Loc) {
+        if expected.kind == TyKind::Enum && actual.kind == TyKind::Enum {
+            if let (Some(expected), Some(actual)) = (&expected.name, &actual.name) {
+                if expected != actual {
+                    self.diags.error(Stage::Sema, loc, format!("incompatible enum types '{expected}' and '{actual}'"));
+                }
+            }
+        }
     }
 
     fn field_type(&self, base: &Ty, name: &str) -> Option<Ty> {
@@ -195,9 +257,63 @@ impl<'d> Sema<'d> {
     }
 
     fn run(mut self, unit: &mut Unit) -> SemaResult {
+        // Publish enum names and constants before other declarations so an enum
+        // can be used by a variable or function declared earlier in the file.
+        for decl in unit.decls.iter_mut() {
+            let Decl::Enum(e) = decl else { continue };
+            if !e.name.is_empty() && self.out.enums.contains_key(&e.name) {
+                self.diags.error(Stage::Sema, e.loc, format!("enum '{}' is already declared", e.name));
+                continue;
+            }
+            let enum_ty = Ty {
+                kind: TyKind::Enum,
+                name: (!e.name.is_empty()).then(|| e.name.clone()),
+                size: Some(4),
+                elem: None,
+                len: None,
+                msg_id: None,
+            };
+            let mut next = 0;
+            let mut variants = Vec::with_capacity(e.items.len());
+            for item in &mut e.items {
+                let value = match &item.init {
+                    Some(expr) => match self.const_fold(expr) {
+                        Some(value) => value,
+                        None => {
+                            self.diags.error(Stage::Sema, item.loc, "enum initializer must be an integer constant");
+                            next
+                        }
+                    },
+                    None => next,
+                };
+                item.resolved = value;
+                item.ty = Some(enum_ty.clone());
+                variants.push(EnumVariant { name: item.name.clone(), value });
+                let id = self.declare(&item.name, Sym::EnumConst { value, ty: enum_ty.clone() }, item.loc);
+                if !e.name.is_empty() {
+                    let qualified = format!("{}::{}", e.name, item.name);
+                    let scope = self.scopes.last_mut().expect("a scope is always open");
+                    scope.names.entry(qualified).or_insert(id);
+                }
+                next = value.saturating_add(1);
+            }
+            if !e.name.is_empty() {
+                let layout = EnumLayout { name: e.name.clone(), variants, size: 4 };
+                self.out.enums.insert(e.name.clone(), layout.clone());
+                self.declare(&e.name, Sym::Enum(layout), e.loc);
+            }
+        }
+        for decl in unit.decls.iter_mut() {
+            let Decl::Enum(e) = decl else { continue };
+            for item in &mut e.items {
+                if let Some(init) = &mut item.init {
+                    self.expr(init);
+                }
+            }
+        }
+
         // ── pass 1: every global declaration becomes visible ──
-        let mut funcs: Vec<usize> = Vec::new();
-        for (i, decl) in unit.decls.iter_mut().enumerate() {
+        for decl in unit.decls.iter_mut() {
             match decl {
                 Decl::Struct(s) => {
                     if self.out.structs.contains_key(&s.name) {
@@ -207,6 +323,7 @@ impl<'d> Sema<'d> {
                     let mut offset = 0;
                     let mut members = Vec::new();
                     for field in &s.fields {
+                        self.validate_type(&field.decl_ty, field.loc);
                         let mut ty = self.resolve_type(&field.decl_ty);
                         for dim in field.dims.iter().rev() {
                             let len = self.const_fold(dim).unwrap_or(0).max(0) as u32;
@@ -223,15 +340,7 @@ impl<'d> Sema<'d> {
                     self.out.structs.insert(s.name.clone(), layout.clone());
                     self.declare(&s.name, Sym::Struct(layout), s.loc);
                 }
-                Decl::Enum(e) => {
-                    let mut next = 0;
-                    for item in &mut e.items {
-                        let value = item.init.as_ref().and_then(|expr| self.const_fold(expr)).unwrap_or(next);
-                        item.resolved = value;
-                        self.declare(&item.name, Sym::EnumConst(value), item.loc);
-                        next = value.saturating_add(1);
-                    }
-                }
+                Decl::Enum(_) => {}
                 Decl::Variables { decls, .. } => {
                     for v in decls.iter_mut() {
                         Self::declare_var(&mut self, v, Storage::Global);
@@ -239,8 +348,12 @@ impl<'d> Sema<'d> {
                 }
                 Decl::Var(v) => Self::declare_var(&mut self, v, Storage::Global),
                 Decl::Func(f) => {
+                    self.validate_type(&f.ret_ty, f.loc);
                     f.ret_ty = self.resolve_type(&f.ret_ty);
-                    for p in &mut f.params { p.decl_ty = self.resolve_type(&p.decl_ty); }
+                    for p in &mut f.params {
+                        self.validate_type(&p.decl_ty, p.loc);
+                        p.decl_ty = self.resolve_type(&p.decl_ty);
+                    }
                     let index = self.out.funcs.len();
                     let sym = Sym::Func(FuncSym {
                         name: f.name.clone(),
@@ -253,9 +366,22 @@ impl<'d> Sema<'d> {
                     }
                     let id = self.declare(&f.name.clone(), sym, f.loc);
                     self.out.funcs.push(id);
-                    funcs.push(i);
                 }
                 Decl::Handler(_) | Decl::Includes { .. } => {}
+            }
+        }
+
+        // Publish every global before resolving any global initializer. This
+        // keeps references independent of declaration order and decorates the
+        // AST that later compiler stages consume.
+        for decl in unit.decls.iter_mut() {
+            let vars: &mut [VarDecl] = match decl {
+                Decl::Variables { decls, .. } => decls,
+                Decl::Var(v) => std::slice::from_mut(v),
+                _ => &mut [],
+            };
+            for v in vars {
+                self.analyze_var_init(v);
             }
         }
 
@@ -307,6 +433,7 @@ impl<'d> Sema<'d> {
     }
 
     fn declare_var(&mut self, v: &mut VarDecl, storage: Storage) {
+        self.validate_type(&v.decl_ty, v.loc);
         let mut ty = self.resolve_type(&v.decl_ty);
         if v.is_array {
             if v.dims.is_empty() {
@@ -354,9 +481,16 @@ impl<'d> Sema<'d> {
         if timer_id.is_some() {
             self.out.timers.push(id);
         }
-        if let Some(init) = &mut v.init.clone() {
-            self.expr(init);
-        }
+    }
+
+    fn analyze_var_init(&mut self, v: &mut VarDecl) {
+        let Some(init) = &mut v.init else { return };
+        let expected = v
+            .sym
+            .and_then(|id| self.out.var(id).map(|sym| sym.ty.clone()))
+            .unwrap_or_else(|| self.resolve_type(&v.decl_ty));
+        let actual = self.expr(init);
+        self.check_enum_compat(&expected, &actual, v.loc);
     }
 
     fn stmt(&mut self, s: &mut Stmt) {
@@ -374,6 +508,7 @@ impl<'d> Sema<'d> {
             StmtKind::Decl { decls } => {
                 for d in decls.iter_mut() {
                     self.declare_var(d, Storage::Local);
+                    self.analyze_var_init(d);
                 }
             }
             StmtKind::If { cond, then, otherwise } => {
@@ -450,7 +585,8 @@ impl<'d> Sema<'d> {
                 let void = self.cur_ret.kind == TyKind::Void;
                 match expr {
                     Some(e) => {
-                        self.expr(e);
+                        let value_ty = self.expr(e);
+                        self.check_enum_compat(&self.cur_ret.clone(), &value_ty, s.loc);
                         if void {
                             self.diags.error(Stage::Sema, s.loc, "cannot return a value from a void function");
                         }
@@ -480,7 +616,8 @@ impl<'d> Sema<'d> {
                     match &self.out.syms[id as usize] {
                         Sym::Var(v) => v.ty.clone(),
                         Sym::Func(_) => Ty::scalar(TyKind::Error),
-                        Sym::EnumConst(_) => Ty::scalar(TyKind::Long),
+                        Sym::EnumConst { ty, .. } => ty.clone(),
+                        Sym::Enum(_) => Ty::scalar(TyKind::Error),
                         Sym::Struct(layout) => Ty { kind: TyKind::Struct, name: Some(layout.name.clone()), size: Some(layout.size), elem: None, len: None, msg_id: None },
                     }
                 }
@@ -505,7 +642,8 @@ impl<'d> Sema<'d> {
             }
             ExprKind::Assign { target, value, .. } => {
                 let t = self.expr(target);
-                self.expr(value);
+                let v = self.expr(value);
+                self.check_enum_compat(&t, &v, e.loc);
                 t
             }
             ExprKind::Cond { cond, then, otherwise } => {
@@ -576,6 +714,9 @@ impl<'d> Sema<'d> {
                         format!("'{name}' expects {} argument(s), got {}", f.params.len(), arg_tys.len()),
                     );
                 }
+                for (arg, param) in arg_tys.iter().zip(&f.params) {
+                    self.check_enum_compat(param, arg, loc);
+                }
                 return f.ret;
             }
         }
@@ -643,5 +784,78 @@ pub fn usual_conversion(a: &Ty, b: &Ty) -> Ty {
         Ty::scalar(TyKind::Dword)
     } else {
         Ty::scalar(TyKind::Long)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn enum_declarations_publish_nominal_types_before_variables() {
+        let mut diags = DiagBag::new();
+        let mut unit = capl_parse::parse(
+            "variables { enum Mode current = Mode::RUNNING; } enum Mode { OFF, RUNNING = 4, FAULT } on start { current = Mode::FAULT; write(\"%d\", Mode::RUNNING); }",
+            "enum.can",
+            &mut diags,
+        );
+        let sema = analyze(&mut unit, &mut diags);
+        assert!(!diags.has_errors(), "{:?}", diags.items());
+
+        let mode = sema.enums.get("Mode").expect("enum layout");
+        assert_eq!(mode.size, 4);
+        assert_eq!(mode.variants.iter().map(|v| v.value).collect::<Vec<_>>(), vec![0, 4, 5]);
+
+        let Decl::Variables { decls, .. } = &unit.decls[0] else { panic!("expected variables") };
+        let current = sema.var(decls[0].sym.expect("variable symbol")).expect("variable");
+        assert_eq!(current.ty.kind, TyKind::Enum);
+        assert_eq!(current.ty.name.as_deref(), Some("Mode"));
+
+        let Decl::Handler(handler) = unit.decls.last().expect("handler") else { panic!("expected handler") };
+        let StmtKind::Block { stmts } = &handler.body.kind else { panic!("expected block") };
+        let StmtKind::Expr { expr: Expr { kind: ExprKind::Assign { value, .. }, .. } } = &stmts[0].kind else { panic!("expected assignment") };
+        assert_eq!(value.ty.as_ref().map(|ty| ty.kind.clone()), Some(TyKind::Enum));
+    }
+
+    #[test]
+    fn variable_initializers_keep_symbol_bindings_for_globals_and_locals() {
+        let mut diags = DiagBag::new();
+        let mut unit = capl_parse::parse(
+            "variables { int b = a; int a = 42; } on start { int local = a; }",
+            "initializers.can",
+            &mut diags,
+        );
+        let sema = analyze(&mut unit, &mut diags);
+        assert!(!diags.has_errors(), "{:?}", diags.items());
+
+        let Decl::Variables { decls, .. } = &unit.decls[0] else { panic!("expected variables") };
+        let b_id = decls[0].sym.expect("b symbol");
+        let a_id = decls[1].sym.expect("a symbol");
+        let ExprKind::Ident { sym: b_init_sym, .. } = &decls[0].init.as_ref().expect("b initializer").kind else {
+            panic!("expected global identifier initializer")
+        };
+        assert_eq!(*b_init_sym, Some(a_id));
+        assert_ne!(b_id, a_id);
+
+        let Decl::Handler(handler) = &unit.decls[1] else { panic!("expected handler") };
+        let StmtKind::Block { stmts } = &handler.body.kind else { panic!("expected block") };
+        let StmtKind::Decl { decls } = &stmts[0].kind else { panic!("expected local declaration") };
+        let ExprKind::Ident { sym: local_init_sym, .. } = &decls[0].init.as_ref().expect("local initializer").kind else {
+            panic!("expected local identifier initializer")
+        };
+        assert_eq!(*local_init_sym, Some(a_id));
+        assert!(sema.var(a_id).is_some());
+    }
+
+    #[test]
+    fn distinct_enum_values_are_not_assignable_to_each_other() {
+        let mut diags = DiagBag::new();
+        let mut unit = capl_parse::parse(
+            "enum A { A0 } enum B { B0 } on start { enum A value = B0; value = B::B0; }",
+            "enum-mismatch.can",
+            &mut diags,
+        );
+        let _ = analyze(&mut unit, &mut diags);
+        assert!(diags.items().iter().any(|d| d.message.contains("incompatible enum types")), "{:?}", diags.items());
     }
 }

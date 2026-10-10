@@ -56,8 +56,10 @@ char greeting[32] = "hello";
 
 Scalar types, arrays, string initialization, message objects, and local
 variables are covered. `enum` declarations and enum constants are connected
-through the Rust parser, semantic pass, C backend, and WebAssembly backend;
-enum values are represented as integer constants.
+through the Rust parser, semantic pass, C backend, and WebAssembly backend.
+Named enum variables, parameters, and return values retain their nominal enum
+type in the AST and semantic result; the generated C and WebAssembly backends
+use the CAPL-compatible signed 32-bit representation.
 
 Named structures, anonymous structures in variable declarations, and named
 fields are supported:

@@ -385,14 +385,14 @@ impl<'s> WasmBackend<'s> {
                 Decl::Variables { decls, .. } => decls.iter().find(|vd| vd.sym == Some(id)).and_then(|vd| vd.init.as_ref()),
                 _ => None,
             }) {
-                if let Some(value) = match init.kind { ExprKind::IntLit { value } | ExprKind::CharLit { value } => Some(value), _ => None } {
+                if let Some(value) = self.const_value(init) {
                     let mut bytes = vec![0u8; v.ty.size_of() as usize]; let n = 4.min(bytes.len()); bytes[..n].copy_from_slice(&(value as i32).to_le_bytes()[..n]); self.data.push((addr, bytes));
                 }
                 if let ExprKind::InitList { items } = &init.kind {
                     let elem_size = v.ty.elem.as_ref().map(|e| e.size_of()).unwrap_or(4);
                     let mut bytes = vec![0u8; v.ty.size_of() as usize];
                     for (i, item) in items.iter().enumerate().take(v.ty.len.unwrap_or(0) as usize) {
-                        if let ExprKind::IntLit { value } | ExprKind::CharLit { value } = item.kind {
+                        if let Some(value) = self.const_value(item) {
                             let off = i * elem_size as usize; let n = (elem_size as usize).min(4); bytes[off..off+n].copy_from_slice(&(value as i32).to_le_bytes()[..n]);
                         }
                     }
@@ -447,7 +447,7 @@ impl<'s> WasmBackend<'s> {
 
     fn collect_consts(&mut self, unit: &Unit) {
         for (id, sym) in self.sema.syms.iter().enumerate() {
-            if let capl_sema::Sym::EnumConst(value) = sym {
+            if let capl_sema::Sym::EnumConst { value, .. } = sym {
                 self.consts.insert(id as SymId, *value);
             }
         }
@@ -458,6 +458,31 @@ impl<'s> WasmBackend<'s> {
                 let Some(id) = v.sym else { continue };
                 if let Some(init) = &v.init { if let ExprKind::IntLit { value } | ExprKind::CharLit { value } = init.kind { self.consts.insert(id, value); } }
             }
+        }
+    }
+
+    fn const_value(&self, expr: &Expr) -> Option<i64> {
+        match &expr.kind {
+            ExprKind::IntLit { value } | ExprKind::CharLit { value } => Some(*value),
+            ExprKind::Ident { sym: Some(id), .. } => self.consts.get(id).copied(),
+            ExprKind::Unary { op, operand, .. } => {
+                let value = self.const_value(operand)?;
+                Some(match op.as_str() { "+" => value, "-" => -value, "!" => (value == 0) as i64, "~" => !value, _ => return None })
+            }
+            ExprKind::Binary { op, left, right } => {
+                let (left, right) = (self.const_value(left)?, self.const_value(right)?);
+                Some(match op.as_str() {
+                    "+" => left + right, "-" => left - right, "*" => left * right,
+                    "/" if right != 0 => left / right, "%" if right != 0 => left % right,
+                    "<<" => left << right, ">>" => left >> right,
+                    "&" => left & right, "|" => left | right, "^" => left ^ right,
+                    _ => return None,
+                })
+            }
+            ExprKind::Cond { cond, then, otherwise } => {
+                if self.const_value(cond)? != 0 { self.const_value(then) } else { self.const_value(otherwise) }
+            }
+            _ => None,
         }
     }
 

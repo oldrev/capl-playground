@@ -41,6 +41,8 @@ pub enum TyKind {
     Timer,
     MsTimer,
     Message,
+    /// A named CAPL enumeration. Enum values use signed 32-bit storage.
+    Enum,
     Array,
     Struct,
     Error,
@@ -67,12 +69,15 @@ impl Ty {
     pub fn named_struct(name: impl Into<String>) -> Self {
         Self { kind: TyKind::Struct, name: Some(name.into()), size: None, elem: None, len: None, msg_id: None }
     }
+    pub fn named_enum(name: impl Into<String>) -> Self {
+        Self { kind: TyKind::Enum, name: Some(name.into()), size: Some(4), elem: None, len: None, msg_id: None }
+    }
     /// Storage width in bytes, following CAPL (int = 2, long = 4, float = 8).
     pub fn size_of(&self) -> u32 {
         match self.kind {
             TyKind::Char | TyKind::Byte => 1,
             TyKind::Int | TyKind::Word => 2,
-            TyKind::Long | TyKind::Dword | TyKind::Timer | TyKind::MsTimer => 4,
+            TyKind::Long | TyKind::Dword | TyKind::Timer | TyKind::MsTimer | TyKind::Enum => 4,
             TyKind::Int64 | TyKind::Qword | TyKind::Float | TyKind::Double => 8,
             TyKind::Message => 32,
             TyKind::Struct => self.size.unwrap_or(0),
@@ -193,6 +198,8 @@ ast_node! {
         /// explicit `= expr`, folded into `resolved` by sema
         pub init: Option<Expr>,
         pub resolved: i64,
+        /// The enum type assigned by `capl-sema`.
+        pub ty: Option<Ty>,
         pub loc: Loc,
     }
 }

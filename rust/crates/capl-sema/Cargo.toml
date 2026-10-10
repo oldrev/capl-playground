@@ -8,3 +8,6 @@ description = "Scopes, symbols and type checking for the CAPL compiler"
 [dependencies]
 capl-diag.workspace = true
 capl-ast.workspace = true
+
+[dev-dependencies]
+capl-parse.workspace = true

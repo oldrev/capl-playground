@@ -37,6 +37,7 @@ pub fn c_type(t: &Ty) -> String {
         TyKind::Dword => "uint32_t".into(), TyKind::Int64 => "int64_t".into(), TyKind::Qword => "uint64_t".into(),
         TyKind::Float | TyKind::Double => "double".into(), TyKind::Timer | TyKind::MsTimer => "CaplTimer".into(),
         TyKind::Message => "CaplMessage".into(), TyKind::Array => t.elem.as_ref().map(|e| c_type(e)).unwrap_or_else(|| "int32_t".into()),
+        TyKind::Enum => t.name.clone().map(|n| format!("enum {n}")).unwrap_or_else(|| "int32_t".into()),
         TyKind::Struct => t.name.clone().map(|n| format!("struct {n}")).unwrap_or_else(|| "int32_t".into()),
         TyKind::Error => "int32_t".into(),
     }
@@ -269,7 +270,7 @@ impl<'s> CBackend<'s> {
             ExprKind::FloatLit { value } => format!("{value:?}"),
             ExprKind::CharLit { value } => format!("{value}"),
             ExprKind::StrLit { value } => format!("{value:?}"),
-            ExprKind::Ident { name, .. } => name.clone(),
+            ExprKind::Ident { name, .. } => name.rsplit("::").next().unwrap_or(name).to_string(),
             ExprKind::This => "this_msg".into(),
             ExprKind::Unary { op, operand, postfix } => {
                 let o = self.expr(operand);
