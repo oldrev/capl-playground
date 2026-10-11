@@ -1,6 +1,6 @@
 #![cfg(target_family = "wasm")]
 
-use gpui::{div, Context, IntoElement, Render, Window};
+use gpui::{div, rgb, Context, IntoElement, Render, Window};
 use gpui_base::StyledExt;
 use gpui_kit::*;
 use wasm_bindgen::prelude::*;
@@ -12,6 +12,8 @@ impl Render for WebWorkspace {
         div()
             .size_full()
             .p_6()
+            .bg(rgb(0x202124))
+            .text_color(rgb(0xffffff))
             .v_flex()
             .gap_3()
             .child("CAPL Playground")

@@ -2,7 +2,7 @@ param(
   [int]$Port = 8080
 )
 
-Push-Location $PSScriptRoot
+Push-Location (Join-Path $PSScriptRoot "crates/capl-web")
 try {
 
 if (-not (Get-Command trunk -ErrorAction SilentlyContinue)) {
@@ -11,13 +11,14 @@ if (-not (Get-Command trunk -ErrorAction SilentlyContinue)) {
 }
 
 $env:RUSTUP_TOOLCHAIN = "nightly"
+$env:NO_COLOR = "false"
 $target = rustup target list --installed --toolchain nightly
 if (-not ($target | Select-String "wasm32-unknown-unknown")) {
   Write-Error "The nightly WASM target is required. Install it once with: rustup +nightly target add wasm32-unknown-unknown"
   exit 1
 }
 
-trunk serve crates/capl-web/index.html --port $Port --open
+trunk serve --port $Port --open
 } finally {
   Pop-Location
 }

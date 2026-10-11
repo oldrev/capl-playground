@@ -24,3 +24,38 @@ jobs:
       - name: Format
         working-directory: rust
         run: cargo fmt --all -- --check
+
+  wasm-gui:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          targets: wasm32-unknown-unknown
+      - name: Check GPUI WebAssembly target
+        working-directory: rust
+        run: cargo check -p capl-web --target wasm32-unknown-unknown
+      - name: Install Trunk
+        uses: taiki-e/install-action@trunk
+      - name: Build browser GUI
+        working-directory: rust/crates/capl-web
+        env:
+          RUSTUP_TOOLCHAIN: nightly
+          NO_COLOR: "false"
+        run: trunk build
+
+  release-desktop:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [check]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build desktop application
+        working-directory: rust
+        run: cargo build --release -p capl-desktop
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: capl-playground-windows-x86_64
+          path: rust/target/release/capl-desktop.exe
