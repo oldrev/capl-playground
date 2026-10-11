@@ -34,6 +34,40 @@ fn recorded_frame_invokes_matching_capl_handler() {
 }
 
 #[test]
+fn replay_captures_capl_write_output() {
+    let source = "on message 0x100 { write(\"received\"); }";
+    let out = compile(
+        source,
+        Options {
+            backends: vec![BackendId::Wasm],
+            ..Options::default()
+        },
+    );
+    assert!(out.ok, "compile diagnostics: {:?}", out.diagnostics);
+    let artifact = out.wasm.expect("wasm artifact");
+    let mut runtime = WasmReplay::new(
+        &artifact.bytes,
+        artifact.msgbuf_addr,
+        vec![ReplayHandler {
+            export_name: "on_message_0x100".into(),
+            id: Some(0x100),
+            channel: None,
+            wildcard: false,
+            sysvar: None,
+        }],
+    )
+    .unwrap();
+    runtime
+        .run_frame(&BusFrame::new(1_000, 1, 0x100, Direction::Rx, vec![]))
+        .unwrap();
+    assert!(runtime
+        .output()
+        .writes
+        .iter()
+        .any(|write| write.contains("received")));
+}
+
+#[test]
 fn system_variable_changes_invoke_capl_handlers() {
     let out = compile(
         "on sysvar Foo::Enable { write(\"changed\"); }",

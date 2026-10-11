@@ -131,7 +131,30 @@ impl WasmReplay {
         );
         let mut linker = Linker::new(&engine);
         linker
-            .func_wrap("capl", "write", |_fmt: i32, _count: i32, _base: i32| {})
+            .func_wrap(
+                "capl",
+                "write",
+                |mut caller: wasmi::Caller<'_, HostState>, fmt: i32, _count: i32, _base: i32| {
+                    let Some(Extern::Memory(memory)) = caller.get_export("memory") else {
+                        return;
+                    };
+                    let mut bytes = vec![0u8; 512];
+                    if memory
+                        .read(&caller, fmt.max(0) as usize, &mut bytes)
+                        .is_ok()
+                    {
+                        let end = bytes
+                            .iter()
+                            .position(|byte| *byte == 0)
+                            .unwrap_or(bytes.len());
+                        caller
+                            .data_mut()
+                            .output
+                            .writes
+                            .push(String::from_utf8_lossy(&bytes[..end]).into_owned());
+                    }
+                },
+            )
             .map_err(|e| WasmReplayError::Wasm(e.to_string()))?;
         for name in ["setTimer", "setTimerCyclic"] {
             linker

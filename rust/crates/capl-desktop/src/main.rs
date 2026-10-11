@@ -151,6 +151,7 @@ struct Workspace {
     ast_panel: Entity<TextPanel>,
     c_panel: Entity<TextPanel>,
     wasm_panel: Entity<TextPanel>,
+    runtime_panel: Entity<TextPanel>,
     status: String,
     project_path: Option<std::path::PathBuf>,
     source_path: Option<std::path::PathBuf>,
@@ -183,6 +184,14 @@ impl Workspace {
             cx.new(|cx| TextPanel::new("c-output", "C", "Build to inspect generated C.", cx));
         let wasm_panel = cx
             .new(|cx| TextPanel::new("wasm-output", "WASM", "Build to inspect generated WAT.", cx));
+        let runtime_panel = cx.new(|cx| {
+            TextPanel::new(
+                "runtime-output",
+                "Runtime",
+                "Run the measurement to see write() calls and transmitted frames.",
+                cx,
+            )
+        });
         let editor_state = editor.read(cx).editor.clone();
         let center = DockLayout::tabs().panel_view(panel_handle(editor.clone()), cx);
         let left = DockLayout::tabs().panel_view(panel_handle(source.clone()), cx);
@@ -191,7 +200,8 @@ impl Workspace {
             .panel_view(panel_handle(trace.clone()), cx)
             .panel_view(panel_handle(ast_panel.clone()), cx)
             .panel_view(panel_handle(c_panel.clone()), cx)
-            .panel_view(panel_handle(wasm_panel.clone()), cx);
+            .panel_view(panel_handle(wasm_panel.clone()), cx)
+            .panel_view(panel_handle(runtime_panel.clone()), cx);
         dock.update(cx, |area, cx| {
             area.set_center(center, window, cx);
             area.set_dock(DockPlacement::Left, left, window, cx);
@@ -215,6 +225,7 @@ impl Workspace {
             ast_panel,
             c_panel,
             wasm_panel,
+            runtime_panel,
             status: "Ready".into(),
             project_path: None,
             source_path: None,
@@ -295,6 +306,7 @@ impl Workspace {
             Ok(runtime) => {
                 self.runtime = Some(runtime);
                 self.status = "Running".into();
+                self.refresh_runtime_panel(cx);
             }
             Err(error) => self.status = format!("Runtime error: {error}"),
         }
@@ -304,6 +316,7 @@ impl Workspace {
     fn stop_runtime(&mut self, _: &mut Window, cx: &mut Context<Self>) {
         self.runtime = None;
         self.status = "Stopped".into();
+        self.refresh_runtime_panel(cx);
         cx.notify();
     }
 
@@ -330,6 +343,7 @@ impl Workspace {
             Err(error) => self.status = format!("Replay error: {error}"),
         }
         self.trace_cursor = self.trace_cursor.saturating_add(1);
+        self.refresh_runtime_panel(cx);
         cx.notify();
     }
 
@@ -536,6 +550,51 @@ impl Workspace {
             })
             .unwrap_or_else(|| "No project open\nUse File → New Project or Open Project.".into());
         self.project_panel
+            .update(cx, |panel, cx| panel.set_body(body, cx));
+    }
+
+    fn refresh_runtime_panel(&mut self, cx: &mut Context<Self>) {
+        let body = self
+            .runtime
+            .as_ref()
+            .map(|runtime| {
+                let output = runtime.output();
+                let writes = if output.writes.is_empty() {
+                    "(no write calls)".into()
+                } else {
+                    output.writes.join("\n")
+                };
+                let frames = if output.frames.is_empty() {
+                    "(no transmitted frames)".into()
+                } else {
+                    output
+                        .frames
+                        .iter()
+                        .map(|frame| {
+                            format!(
+                                "{} us  {}  0x{:X} [{}]",
+                                frame.timestamp_us,
+                                if matches!(frame.direction, Direction::Tx) {
+                                    "Tx"
+                                } else {
+                                    "Rx"
+                                },
+                                frame.id,
+                                frame
+                                    .data
+                                    .iter()
+                                    .map(|byte| format!("{:02X}", byte))
+                                    .collect::<Vec<_>>()
+                                    .join(" ")
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                };
+                format!("write():\n{writes}\n\nBus frames:\n{frames}")
+            })
+            .unwrap_or_else(|| "Runtime is stopped.".into());
+        self.runtime_panel
             .update(cx, |panel, cx| panel.set_body(body, cx));
     }
 }
