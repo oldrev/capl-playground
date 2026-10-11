@@ -206,7 +206,7 @@ export default function App() {
   return (
     <div className="flex h-screen min-h-0 flex-col">
       {/* ── header ─────────────────────────────────── */}
-      <header className="grid grid-cols-1 gap-2 border-b border-line bg-panel/80 px-4 py-2.5 backdrop-blur lg:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] lg:items-center">
+      <header className="topbar grid grid-cols-1 gap-2 border-b border-line bg-panel/80 px-4 py-2.5 backdrop-blur lg:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] lg:items-center">
         <div className="flex min-w-0 items-center gap-3">
           <div className="relative flex h-9 w-9 items-center justify-center rounded-xl hl-stripe shadow-sm">
             <span className="font-mono text-[13px] font-black text-white drop-shadow">C</span>
@@ -293,6 +293,10 @@ export default function App() {
               </button>
             ))}
           </div>
+
+          <a className="btn btn-ghost px-2 py-1.5" href="https://github.com/oldrev/capl-playground" target="_blank" rel="noreferrer" title="GitHub repository" aria-label="GitHub repository">
+            <Icon.github className="h-4 w-4" />
+          </a>
 
         </div>
       </header>
