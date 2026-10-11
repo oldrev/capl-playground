@@ -278,21 +278,15 @@ export default function App() {
             ))}
           </div>
 
-          <div className="flex overflow-hidden rounded-lg border border-line">
-            {(["en", "zh"] as Lang[]).map((l) => (
-              <button
-                key={l}
-                onClick={() => setLang(l)}
-                className="px-2.5 py-1.5 text-[11px] font-bold transition-colors"
-                style={{
-                  background: lang === l ? "var(--patina)" : "transparent",
-                  color: lang === l ? "#fff" : "var(--muted)",
-                }}
-              >
-                {l === "en" ? "EN" : "中文"}
-              </button>
-            ))}
-          </div>
+          <select
+            className="inp cursor-pointer pr-6 text-[11px] font-bold"
+            value={lang}
+            onChange={(e) => setLang(e.target.value as Lang)}
+            aria-label="Language"
+          >
+            <option value="en">EN</option>
+            <option value="zh">中文</option>
+          </select>
 
           <a className="btn btn-ghost px-2 py-1.5" href="https://github.com/oldrev/capl-playground" target="_blank" rel="noreferrer" title="GitHub repository" aria-label="GitHub repository">
             <Icon.github className="h-4 w-4" />

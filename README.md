@@ -15,6 +15,8 @@ Nothing is sent to a server: the compiler runs in the page.
 
 ![CAPL Playground interface](docs/capl-playground.png)
 
+[![Play Now](https://img.shields.io/badge/▶%20Play%20Now-CAPL%20Playground-ff7a3d?style=for-the-badge)](https://oldrev.github.io/capl-playground/)
+
 ```
 source.can ─▶ lexer ─▶ parser ─▶ AST ─▶ sema ─┬─▶ wasm backend ─▶ .wasm ─▶ simulator
                                               ├─▶ C backend    ─▶ .c

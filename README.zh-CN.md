@@ -12,6 +12,8 @@
 
 ![CAPL Playground 界面](docs/capl-playground.png)
 
+[![立即体验](https://img.shields.io/badge/▶%20立即体验-CAPL%20Playground-ff7a3d?style=for-the-badge)](https://oldrev.github.io/capl-playground/)
+
 ```
 source.can ─▶ 词法分析 ─▶ 语法分析 ─▶ AST ─▶ 语义分析 ─┬─▶ wasm 后端 ─▶ .wasm ─▶ 模拟器
                                                        ├─▶ C 后端    ─▶ .c
