@@ -45,22 +45,28 @@ actions!(
 struct TextPanel {
     name: &'static str,
     title: &'static str,
-    body: &'static str,
+    body: String,
     focus: FocusHandle,
 }
 impl TextPanel {
     fn new(
         name: &'static str,
         title: &'static str,
-        body: &'static str,
+        body: impl Into<String>,
         cx: &mut Context<Self>,
     ) -> Self {
         Self {
             name,
             title,
-            body,
+            body: body.into(),
             focus: cx.focus_handle(),
         }
+    }
+}
+impl TextPanel {
+    fn set_body(&mut self, body: impl Into<String>, cx: &mut Context<Self>) {
+        self.body = body.into();
+        cx.notify();
     }
 }
 impl gpui_base::dock::Panel for TextPanel {
@@ -81,7 +87,12 @@ impl Focusable for TextPanel {
 }
 impl Render for TextPanel {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-        div().size_full().p_4().v_flex().gap_2().child(self.body)
+        div()
+            .size_full()
+            .p_4()
+            .v_flex()
+            .gap_2()
+            .child(self.body.clone())
     }
 }
 
@@ -133,6 +144,8 @@ struct Workspace {
     runtime: Option<WasmReplay>,
     trace: Vec<TraceEvent>,
     trace_cursor: usize,
+    diagnostics: Entity<TextPanel>,
+    trace_panel: Entity<TextPanel>,
     status: String,
 }
 impl Workspace {
@@ -147,7 +160,7 @@ impl Workspace {
             )
         });
         let editor = cx.new(|cx| EditorPanel::new(window, cx));
-        let trace = cx.new(|cx| TextPanel::new("trace-replay", "Trace Replay", "Import Vector ASC or candump text traces, then replay them against CAPL on message handlers.", cx));
+        let trace = cx.new(|cx| TextPanel::new("trace-replay", "Trace Replay", "No trace loaded. Use Run → Open trace or place traffic.asc in the project directory.", cx));
         let diagnostics = cx.new(|cx| {
             TextPanel::new(
                 "diagnostics",
@@ -160,8 +173,8 @@ impl Workspace {
         let center = DockLayout::tabs().panel_view(panel_handle(editor.clone()), cx);
         let left = DockLayout::tabs().panel_view(panel_handle(source), cx);
         let bottom = DockLayout::tabs()
-            .panel_view(panel_handle(diagnostics), cx)
-            .panel_view(panel_handle(trace), cx);
+            .panel_view(panel_handle(diagnostics.clone()), cx)
+            .panel_view(panel_handle(trace.clone()), cx);
         dock.update(cx, |area, cx| {
             area.set_center(center, window, cx);
             area.set_dock(DockPlacement::Left, left, window, cx);
@@ -179,6 +192,8 @@ impl Workspace {
             runtime: None,
             trace: Vec::new(),
             trace_cursor: 0,
+            diagnostics,
+            trace_panel: trace,
             status: "Ready".into(),
         }
     }
@@ -193,6 +208,14 @@ impl Workspace {
             },
         );
         if !out.ok {
+            let body = out
+                .diagnostics
+                .iter()
+                .map(|diag| diag.message.clone())
+                .collect::<Vec<_>>()
+                .join("\n");
+            self.diagnostics
+                .update(cx, |panel, cx| panel.set_body(body, cx));
             self.status = format!("Build failed: {} diagnostic(s)", out.diagnostics.len());
             self.artifact = None;
             self.handlers.clear();
@@ -208,6 +231,17 @@ impl Workspace {
             .collect();
         self.artifact = out.wasm;
         self.runtime = None;
+        self.diagnostics.update(cx, |panel, cx| {
+            panel.set_body(
+                format!(
+                    "Build succeeded\nhandlers: {}\nC output: {}\nWASM output: {}",
+                    self.handlers.len(),
+                    out.c.is_some(),
+                    self.artifact.is_some()
+                ),
+                cx,
+            )
+        });
         self.status = format!("Build succeeded: {} handler(s)", self.handlers.len());
         cx.notify();
     }
@@ -291,6 +325,15 @@ impl Workspace {
             Some(trace) => {
                 self.trace = trace;
                 self.trace_cursor = 0;
+                self.trace_panel.update(cx, |panel, cx| {
+                    panel.set_body(
+                        format!(
+                            "Loaded {} event(s) from traffic.asc\nClick Replay sample to dispatch the next frame.",
+                            self.trace.len()
+                        ),
+                        cx,
+                    )
+                });
                 self.status = format!(
                     "Loaded {} trace event(s) from traffic.asc",
                     self.trace.len()
