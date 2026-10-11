@@ -69,12 +69,22 @@ fn replay_captures_capl_write_output() {
 
 #[test]
 fn starting_measurement_invokes_on_start() {
-    let out = compile("on start { write(\"started\"); }", Options { backends: vec![BackendId::Wasm], ..Options::default() });
+    let out = compile(
+        "on start { write(\"started\"); }",
+        Options {
+            backends: vec![BackendId::Wasm],
+            ..Options::default()
+        },
+    );
     assert!(out.ok, "compile diagnostics: {:?}", out.diagnostics);
     let artifact = out.wasm.expect("wasm artifact");
     let mut runtime = WasmReplay::new(&artifact.bytes, artifact.msgbuf_addr, Vec::new()).unwrap();
     runtime.start_measurement().unwrap();
-    assert!(runtime.output().writes.iter().any(|write| write.contains("started")));
+    assert!(runtime
+        .output()
+        .writes
+        .iter()
+        .any(|write| write.contains("started")));
 }
 
 #[test]
