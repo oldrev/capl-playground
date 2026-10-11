@@ -836,9 +836,11 @@ dependencies = [
 name = "capl-desktop"
 version = "0.4.0"
 dependencies = [
+ "capl-ast",
  "capl-database-core",
  "capl-database-dbc",
  "capl-driver",
+ "capl-model",
  "capl-project",
  "capl-runtime",
  "capl-trace-asc",
