@@ -251,8 +251,44 @@ impl WasmReplay {
     pub fn output_mut(&mut self) -> &mut ReplayOutput {
         &mut self.store.data_mut().output
     }
+    pub fn now_us(&self) -> u64 {
+        self.store.data().now
+    }
     pub fn set_time(&mut self, time: VirtualTime) {
         self.store.data_mut().now = time.0;
+    }
+
+    pub fn advance_time(&mut self, delta_us: u64) {
+        self.set_time(VirtualTime(self.store.data().now.saturating_add(delta_us)));
+    }
+
+    pub fn start_measurement(&mut self) -> Result<(), WasmReplayError> {
+        if let Ok(init) = self
+            .instance
+            .get_typed_func::<(), ()>(&self.store, "__init")
+        {
+            init.call(&mut self.store, ())
+                .map_err(|e| WasmReplayError::Trap(e.to_string()))?;
+        }
+        for export in ["on_preStart", "on_start"] {
+            if let Ok(handler) = self.instance.get_typed_func::<(), ()>(&self.store, export) {
+                handler
+                    .call(&mut self.store, ())
+                    .map_err(|e| WasmReplayError::Trap(e.to_string()))?;
+            }
+        }
+        Ok(())
+    }
+
+    pub fn stop_measurement(&mut self) -> Result<(), WasmReplayError> {
+        for export in ["on_preStop", "on_stopMeasurement"] {
+            if let Ok(handler) = self.instance.get_typed_func::<(), ()>(&self.store, export) {
+                handler
+                    .call(&mut self.store, ())
+                    .map_err(|e| WasmReplayError::Trap(e.to_string()))?;
+            }
+        }
+        Ok(())
     }
 
     /// Change a system variable and invoke matching `on sysvar` handlers.

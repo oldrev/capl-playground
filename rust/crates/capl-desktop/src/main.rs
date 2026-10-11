@@ -305,7 +305,12 @@ impl Workspace {
         match WasmReplay::new(&artifact.bytes, artifact.msgbuf_addr, self.handlers.clone()) {
             Ok(runtime) => {
                 self.runtime = Some(runtime);
-                self.status = "Running".into();
+                if let Some(runtime) = self.runtime.as_mut() {
+                    match runtime.start_measurement() {
+                        Ok(()) => self.status = "Running".into(),
+                        Err(error) => self.status = format!("Start error: {error}"),
+                    }
+                }
                 self.refresh_runtime_panel(cx);
             }
             Err(error) => self.status = format!("Runtime error: {error}"),
@@ -314,9 +319,38 @@ impl Workspace {
     }
 
     fn stop_runtime(&mut self, _: &mut Window, cx: &mut Context<Self>) {
+        if let Some(runtime) = self.runtime.as_mut() {
+            let _ = runtime.stop_measurement();
+        }
         self.runtime = None;
         self.status = "Stopped".into();
         self.refresh_runtime_panel(cx);
+        cx.notify();
+    }
+
+    fn advance_time(&mut self, delta_us: u64, cx: &mut Context<Self>) {
+        if let Some(runtime) = self.runtime.as_mut() {
+            runtime.advance_time(delta_us);
+            self.status = format!("Virtual time: {} ms", runtime.now_us() / 1000);
+            self.refresh_runtime_panel(cx);
+        } else {
+            self.status = "Run the measurement before advancing time".into();
+        }
+        cx.notify();
+    }
+
+    fn inject_sample(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.runtime.is_none() {
+            self.start_runtime(window, cx);
+        }
+        if let Some(runtime) = self.runtime.as_mut() {
+            let frame = BusFrame::new(runtime.now_us(), 1, 0x100, Direction::Rx, vec![0x12, 0x34]);
+            match runtime.run_frame(&frame) {
+                Ok(count) => self.status = format!("Injected 0x100; invoked {count} handler(s)"),
+                Err(error) => self.status = format!("Inject error: {error}"),
+            };
+            self.refresh_runtime_panel(cx);
+        }
         cx.notify();
     }
 
@@ -677,6 +711,30 @@ impl Render for Workspace {
                             .label("Replay sample")
                             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                                 this.replay_sample(window, cx)
+                            })),
+                    )
+                    .child(
+                        Button::new("advance-100")
+                            .outline()
+                            .label("+100 ms")
+                            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                this.advance_time(100_000, cx)
+                            })),
+                    )
+                    .child(
+                        Button::new("advance-1000")
+                            .outline()
+                            .label("+1 s")
+                            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                this.advance_time(1_000_000, cx)
+                            })),
+                    )
+                    .child(
+                        Button::new("inject")
+                            .outline()
+                            .label("Inject 0x100")
+                            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                                this.inject_sample(window, cx)
                             })),
                     )
                     .child(div().flex_1())
