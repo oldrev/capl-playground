@@ -17,4 +17,5 @@ capl-trace-asc = { path = "../capl-trace-asc" }
 capl-trace-core.workspace = true
 gpui-kit = "0.7.1"
 gpui-base = "0.7.1"
+rfd = "0.15"
 

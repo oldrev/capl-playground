@@ -7,6 +7,7 @@
 use capl_ast::{Decl, EventSpec};
 use capl_driver::{compile, BackendId, Options, WasmArtifact};
 use capl_model::{BusFrame, Direction};
+use capl_project::{decode, encode, ProjectManifest};
 use capl_runtime::{ReplayHandler, WasmReplay};
 use capl_trace_asc::AscReader;
 use capl_trace_core::{TraceEvent, TraceReader};
@@ -146,10 +147,14 @@ struct Workspace {
     trace_cursor: usize,
     diagnostics: Entity<TextPanel>,
     trace_panel: Entity<TextPanel>,
+    project_panel: Entity<TextPanel>,
     ast_panel: Entity<TextPanel>,
     c_panel: Entity<TextPanel>,
     wasm_panel: Entity<TextPanel>,
     status: String,
+    project_path: Option<std::path::PathBuf>,
+    source_path: Option<std::path::PathBuf>,
+    trace_path: Option<std::path::PathBuf>,
 }
 impl Workspace {
     fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
@@ -180,7 +185,7 @@ impl Workspace {
             .new(|cx| TextPanel::new("wasm-output", "WASM", "Build to inspect generated WAT.", cx));
         let editor_state = editor.read(cx).editor.clone();
         let center = DockLayout::tabs().panel_view(panel_handle(editor.clone()), cx);
-        let left = DockLayout::tabs().panel_view(panel_handle(source), cx);
+        let left = DockLayout::tabs().panel_view(panel_handle(source.clone()), cx);
         let bottom = DockLayout::tabs()
             .panel_view(panel_handle(diagnostics.clone()), cx)
             .panel_view(panel_handle(trace.clone()), cx)
@@ -206,10 +211,14 @@ impl Workspace {
             trace_cursor: 0,
             diagnostics,
             trace_panel: trace,
+            project_panel: source,
             ast_panel,
             c_panel,
             wasm_panel,
             status: "Ready".into(),
+            project_path: None,
+            source_path: None,
+            trace_path: None,
         }
     }
 
@@ -325,52 +334,209 @@ impl Workspace {
     }
 
     fn new_project(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.editor.update(cx, |editor, cx| {
-            editor.set_value(
-                "on start {\n  write(\"new CAPL project\");\n}\n",
-                window,
-                cx,
-            )
-        });
-        self.status = "New project".into();
+        let Some(path) = rfd::FileDialog::new()
+            .add_filter("CAPL Project", &["caplproj"])
+            .set_file_name("project.caplproj")
+            .save_file()
+        else {
+            return;
+        };
+        let source_path = path.with_extension("can");
+        let source = "on start {\n  write(\"new CAPL project\");\n}\n";
+        if let Err(error) = std::fs::write(&source_path, source) {
+            self.status = format!("Create source failed: {error}");
+            cx.notify();
+            return;
+        }
+        let source_name = source_path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .into_owned();
+        let manifest = ProjectManifest {
+            source_files: vec![source_name.clone()],
+            active_source: Some(source_name),
+            ..ProjectManifest::new(path.file_stem().unwrap_or_default().to_string_lossy())
+        };
+        match encode(&manifest).and_then(|bytes| std::fs::write(&path, bytes).map_err(Into::into)) {
+            Ok(()) => {
+                self.project_path = Some(path.clone());
+                self.source_path = Some(source_path);
+                self.editor
+                    .update(cx, |editor, cx| editor.set_value(source, window, cx));
+                self.refresh_project_panel(cx);
+                self.status = format!("Created {}", path.display());
+            }
+            Err(error) => self.status = format!("Save project failed: {error}"),
+        }
         cx.notify();
     }
 
-    fn open_project(&mut self, _: &mut Window, cx: &mut Context<Self>) {
-        self.status = "Project manager: open a .caplproj from the Project panel".into();
+    fn open_project(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(path) = rfd::FileDialog::new()
+            .add_filter("CAPL Project", &["caplproj"])
+            .pick_file()
+        else {
+            return;
+        };
+        let result = std::fs::read(&path)
+            .map_err(capl_project::ProjectError::from)
+            .and_then(|bytes| decode(&bytes));
+        match result {
+            Ok(manifest) => {
+                let root = path.parent().unwrap_or_else(|| std::path::Path::new("."));
+                let source_name = manifest
+                    .active_source
+                    .clone()
+                    .or_else(|| manifest.source_files.first().cloned());
+                if let Some(source_name) = source_name {
+                    let source_path = root.join(source_name);
+                    match std::fs::read_to_string(&source_path) {
+                        Ok(source) => {
+                            self.editor
+                                .update(cx, |editor, cx| editor.set_value(source, window, cx));
+                            self.source_path = Some(source_path);
+                        }
+                        Err(error) => {
+                            self.status = format!("Load source failed: {error}");
+                            cx.notify();
+                            return;
+                        }
+                    }
+                }
+                self.project_path = Some(path.clone());
+                self.trace_path = manifest.traces.first().map(|p| root.join(p));
+                self.refresh_project_panel(cx);
+                self.status = format!("Opened {}", path.display());
+            }
+            Err(error) => self.status = format!("Open project failed: {error}"),
+        }
         cx.notify();
     }
 
     fn save_project(&mut self, _: &mut Window, cx: &mut Context<Self>) {
-        self.status = "Project state ready to save as .caplproj".into();
+        let Some(path) = self.project_path.clone().or_else(|| {
+            rfd::FileDialog::new()
+                .add_filter("CAPL Project", &["caplproj"])
+                .set_file_name("project.caplproj")
+                .save_file()
+        }) else {
+            return;
+        };
+        let source_path = self
+            .source_path
+            .clone()
+            .unwrap_or_else(|| path.with_extension("can"));
+        let source_name = source_path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .into_owned();
+        let source = self.editor.read(cx).value().to_string();
+        let result = std::fs::write(&source_path, source)
+            .map_err(capl_project::ProjectError::from)
+            .and_then(|_| {
+                let manifest = ProjectManifest {
+                    source_files: vec![source_name.clone()],
+                    active_source: Some(source_name),
+                    traces: self
+                        .trace_path
+                        .as_ref()
+                        .and_then(|p| p.file_name())
+                        .map(|p| vec![p.to_string_lossy().into_owned()])
+                        .unwrap_or_default(),
+                    ..ProjectManifest::new(path.file_stem().unwrap_or_default().to_string_lossy())
+                };
+                encode(&manifest).and_then(|bytes| std::fs::write(&path, bytes).map_err(Into::into))
+            });
+        match result {
+            Ok(()) => {
+                self.project_path = Some(path.clone());
+                self.source_path = Some(source_path);
+                self.refresh_project_panel(cx);
+                self.status = format!("Saved {}", path.display());
+            }
+            Err(error) => self.status = format!("Save project failed: {error}"),
+        }
         cx.notify();
     }
 
     fn open_trace(&mut self, _: &mut Window, cx: &mut Context<Self>) {
-        match std::fs::read_to_string("traffic.asc")
+        let Some(path) = rfd::FileDialog::new()
+            .add_filter("CAN traces", &["asc", "log", "txt"])
+            .pick_file()
+        else {
+            return;
+        };
+        match std::fs::read_to_string(&path)
             .ok()
             .and_then(|text| AscReader.read(&text).ok())
         {
             Some(trace) => {
                 self.trace = trace;
                 self.trace_cursor = 0;
+                self.trace_path = Some(path.clone());
                 self.trace_panel.update(cx, |panel, cx| {
                     panel.set_body(
                         format!(
-                            "Loaded {} event(s) from traffic.asc\nClick Replay sample to dispatch the next frame.",
-                            self.trace.len()
+                            "Loaded {} event(s) from {}\nClick Replay sample to dispatch the next frame.",
+                            self.trace.len(), path.display()
                         ),
                         cx,
                     )
                 });
                 self.status = format!(
-                    "Loaded {} trace event(s) from traffic.asc",
-                    self.trace.len()
+                    "Loaded {} trace event(s) from {}",
+                    self.trace.len(),
+                    path.display()
                 );
             }
-            None => self.status = "No traffic.asc found in the current project directory".into(),
+            None => self.status = format!("Could not parse trace {}", path.display()),
         }
         cx.notify();
+    }
+
+    fn refresh_project_panel(&mut self, cx: &mut Context<Self>) {
+        let body = self
+            .project_path
+            .as_ref()
+            .map(|path| {
+                let mut files = vec![path
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .into_owned()];
+                if let Some(source) = &self.source_path {
+                    files.push(
+                        source
+                            .file_name()
+                            .unwrap_or_default()
+                            .to_string_lossy()
+                            .into_owned(),
+                    );
+                }
+                if let Some(trace) = &self.trace_path {
+                    files.push(
+                        trace
+                            .file_name()
+                            .unwrap_or_default()
+                            .to_string_lossy()
+                            .into_owned(),
+                    );
+                }
+                format!(
+                    "{}\n{}",
+                    path.display(),
+                    files
+                        .into_iter()
+                        .map(|name| format!("  {name}"))
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                )
+            })
+            .unwrap_or_else(|| "No project open\nUse File → New Project or Open Project.".into());
+        self.project_panel
+            .update(cx, |panel, cx| panel.set_body(body, cx));
     }
 }
 impl Render for Workspace {
