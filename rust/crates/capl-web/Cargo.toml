@@ -9,6 +9,10 @@ description = "GPUI Kit WebAssembly entry point for CAPL Playground"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+capl-ast.workspace = true
+capl-driver.workspace = true
+capl-model.workspace = true
+capl-runtime.workspace = true
 console_error_panic_hook = "0.1"
 gpui-kit = "0.7.1"
 gpui-base = "0.7.1"

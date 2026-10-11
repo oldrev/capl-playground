@@ -52,7 +52,9 @@ GPUI's current WebAssembly backend requires nightly, so install the target once
 with `rustup +nightly target add wasm32-unknown-unknown`; `serve-web.ps1` sets
 the toolchain automatically.
 
-The fixed project extension is `.caplproj`. Its JSON manifest can be stored by the native filesystem adapter or by a browser adapter backed by local storage.
+The fixed project extension is `.caplproj`. The native GPUI shell now uses the
+system file picker for New/Open/Save Project and Open Trace. Its JSON manifest
+can also be stored by a browser adapter backed by local storage.
 
 ## Replay
 

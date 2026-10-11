@@ -991,6 +991,10 @@ dependencies = [
 name = "capl-web"
 version = "0.4.0"
 dependencies = [
+ "capl-ast",
+ "capl-driver",
+ "capl-model",
+ "capl-runtime",
  "console_error_panic_hook",
  "gpui-base",
  "gpui-kit",

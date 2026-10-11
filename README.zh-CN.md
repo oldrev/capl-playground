@@ -51,7 +51,8 @@ cargo run -p capl-replay -- path/to/node.can path/to/traffic.asc
 GPUI 当前的 WebAssembly backend 需要 nightly，首次执行：
 `rustup +nightly target add wasm32-unknown-unknown`；`serve-web.ps1` 会自动选择 nightly。
 
-项目文件扩展名固定为 `.caplproj`。同一个 JSON manifest 可以通过原生文件系统适配器保存，也可以通过浏览器 local storage 适配器保存。
+项目文件扩展名固定为 `.caplproj`。GPUI 原生版的 New/Open/Save Project 和 Open Trace
+现在使用系统文件选择器；同一个 JSON manifest 也可以通过浏览器 local storage 适配器保存。
 
 ## 回放
 
