@@ -1,0 +1,9 @@
+[package]
+name = "capl-trace-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Common trace stream and parser interfaces"
+
+[dependencies]
+capl-model.workspace = true

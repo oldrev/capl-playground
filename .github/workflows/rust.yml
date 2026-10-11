@@ -1,0 +1,26 @@
+name: Rust
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Check workspace
+        working-directory: rust
+        run: cargo check --workspace
+      - name: Test workspace
+        working-directory: rust
+        run: cargo test --workspace
+      - name: Format
+        working-directory: rust
+        run: cargo fmt --all -- --check

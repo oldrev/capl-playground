@@ -1,0 +1,10 @@
+[package]
+name = "capl-database-dbc"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Small, dependency-free DBC reader"
+
+[dependencies]
+capl-database-core.workspace = true
+

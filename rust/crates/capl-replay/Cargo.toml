@@ -1,0 +1,15 @@
+[package]
+name = "capl-replay"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Replay recorded ASC/candump traffic through a CAPL node"
+
+[dependencies]
+capl-ast.workspace = true
+capl-driver.workspace = true
+capl-model.workspace = true
+capl-runtime.workspace = true
+capl-trace-asc = { path = "../capl-trace-asc" }
+capl-trace-core.workspace = true
+

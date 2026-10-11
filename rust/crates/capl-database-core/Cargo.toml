@@ -1,0 +1,10 @@
+[package]
+name = "capl-database-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Format-independent CAN/LIN network database model"
+
+[dependencies]
+capl-model.workspace = true
+serde.workspace = true

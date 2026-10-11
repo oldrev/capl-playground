@@ -1,0 +1,9 @@
+[package]
+name = "capl-model"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Format-independent CAN and LIN domain models"
+
+[dependencies]
+serde.workspace = true

@@ -1,0 +1,16 @@
+[package]
+name = "capl-project"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Portable CAPL Playground project manifest and storage abstraction"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+wasm-bindgen = { workspace = true, optional = true }
+web-sys = { workspace = true, optional = true }
+
+[features]
+web-storage = ["dep:wasm-bindgen", "dep:web-sys"]
+

@@ -9,6 +9,15 @@ members = [
     "crates/capl-codegen-c",
     "crates/capl-driver",
     "crates/capl-wasm",
+    "crates/capl-model",
+    "crates/capl-trace-core",
+    "crates/capl-trace-asc",
+    "crates/capl-database-core",
+    "crates/capl-database-dbc",
+    "crates/capl-project",
+    "crates/capl-runtime",
+    "crates/capl-desktop",
+    "crates/capl-replay",
 ]
 
 [workspace.package]
@@ -26,8 +35,15 @@ capl-sema = { path = "crates/capl-sema", version = "0.4.0" }
 capl-codegen-wasm = { path = "crates/capl-codegen-wasm", version = "0.4.0" }
 capl-codegen-c = { path = "crates/capl-codegen-c", version = "0.4.0" }
 capl-driver = { path = "crates/capl-driver", version = "0.4.0" }
+capl-model = { path = "crates/capl-model", version = "0.4.0" }
+capl-trace-core = { path = "crates/capl-trace-core", version = "0.4.0" }
+capl-database-core = { path = "crates/capl-database-core", version = "0.4.0" }
+capl-project = { path = "crates/capl-project", version = "0.4.0" }
+capl-runtime = { path = "crates/capl-runtime", version = "0.4.0" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+wasm-bindgen = "0.2"
+web-sys = { version = "0.3", features = ["Storage", "Window"] }
 wasmi = "0.31"
 wasm-encoder = "0.261"
 
