@@ -9,12 +9,14 @@ declare global {
 
 export function initAnalytics(): void {
   if (!measurementId || typeof document === "undefined") return;
+  if (document.querySelector('script[data-capl-google-analytics="true"]')) return;
   window.dataLayer = window.dataLayer || [];
   window.gtag = (...args: unknown[]) => window.dataLayer?.push(args);
   window.gtag("js", new Date());
   window.gtag("config", measurementId, { send_page_view: true });
   const script = document.createElement("script");
   script.async = true;
+  script.dataset.caplGoogleAnalytics = "true";
   script.src = `https://www.googletagmanager.com/gtag/js?id=${encodeURIComponent(measurementId)}`;
   document.head.appendChild(script);
 }

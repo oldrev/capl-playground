@@ -69,7 +69,12 @@ jobs:
       - name: Build
         env:
           VITE_GA_MEASUREMENT_ID: ${{ secrets.GA_MEASUREMENT_ID }}
-        run: npm run build
+        run: |
+          if [ -z "$VITE_GA_MEASUREMENT_ID" ]; then
+            echo "Missing repository secret: GA_MEASUREMENT_ID"
+            exit 1
+          fi
+          npm run build
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3

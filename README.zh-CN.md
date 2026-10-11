@@ -134,15 +134,3 @@ CAPL Playground 是独立的实验性兼容性和教学项目。它不受 Vector
 当前版本已经支持具名 `struct`、字段和字段数组、数组参数，以及基于线性内存地址的数组/结构体函数边界。原生 CLI 支持 `includes { "file.can" }`，先按源文件目录解析，再使用 `CAPL_INCLUDE_PATH` 中的目录；浏览器编译没有文件系统访问，因此暂不解析 include 文件。
 
 结构体布局、聚合参数、include 缺失和循环 include 都有 parser、语义分析、C/WASM 后端及 driver 集成测试。仍未实现的特性见主 README 的 TODO 和 [CAPL 语言参考](docs/CAPL_LANGUAGE.md)。
-
-## Google Analytics 4
-
-本地开发时可以复制 `.env.example` 为 `.env.local`，填入 Google Analytics 4 的测量 ID（格式如 `G-XXXXXXXXXX`）：
-
-```bash
-VITE_GA_MEASUREMENT_ID=G-XXXXXXXXXX
-```
-
-重新构建并部署后，GA4 会自动记录页面访问。未配置该变量时不会加载 Google Analytics。
-
-GitHub Pages 部署使用 GitHub Actions Secret 注入。打开仓库的 **Settings → Secrets and variables → Actions**，新增名为 `GA_MEASUREMENT_ID` 的 secret，值填入你的 `G-XXXXXXXXXX`。部署 workflow 会在构建时将它传给 `VITE_GA_MEASUREMENT_ID`，不会写入仓库。
