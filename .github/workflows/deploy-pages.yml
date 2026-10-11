@@ -67,6 +67,8 @@ jobs:
         run: bash rust/build-wasm.sh
 
       - name: Build
+        env:
+          VITE_GA_MEASUREMENT_ID: ${{ secrets.GA_MEASUREMENT_ID }}
         run: npm run build
 
       - name: Upload Pages artifact

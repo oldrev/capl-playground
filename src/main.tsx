@@ -2,12 +2,14 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import "./index.css";
 import App from "./App";
+import { initAnalytics } from "./analytics";
 
 declare global {
   interface Window { __CAPL_WASM_READY__?: Promise<unknown> }
 }
 
 const root = document.getElementById("root")!;
+initAnalytics();
 void (window.__CAPL_WASM_READY__ ?? Promise.reject(new Error("Rust compiler bundle was not requested")))
   .then(() => {
     createRoot(root).render(
