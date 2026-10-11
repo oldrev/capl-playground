@@ -41,7 +41,16 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo run -p capl-desktop
 cargo run -p capl-driver -- path/to/file.can --emit=wat
 cargo run -p capl-replay -- path/to/node.can path/to/traffic.asc
+
+# Browser/WASM GUI (PowerShell)
+./rust/serve-web.ps1
 ```
+
+The native shell starts with `cargo run -p capl-desktop`. The browser shell is
+served by Trunk; install it once with `cargo install --locked trunk`.
+GPUI's current WebAssembly backend requires nightly, so install the target once
+with `rustup +nightly target add wasm32-unknown-unknown`; `serve-web.ps1` sets
+the toolchain automatically.
 
 The fixed project extension is `.caplproj`. Its JSON manifest can be stored by the native filesystem adapter or by a browser adapter backed by local storage.
 

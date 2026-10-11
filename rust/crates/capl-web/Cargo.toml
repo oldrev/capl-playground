@@ -1,0 +1,17 @@
+[package]
+name = "capl-web"
+version.workspace = true
+edition = "2021"
+license.workspace = true
+description = "GPUI Kit WebAssembly entry point for CAPL Playground"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+console_error_panic_hook = "0.1"
+gpui-kit = "0.7.1"
+gpui-base = "0.7.1"
+gpui-platform.workspace = true
+wasm-bindgen.workspace = true
+

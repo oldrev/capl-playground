@@ -41,7 +41,15 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo run -p capl-desktop
 cargo run -p capl-driver -- path/to/file.can --emit=wat
 cargo run -p capl-replay -- path/to/node.can path/to/traffic.asc
+
+# 浏览器/WASM GUI（PowerShell）
+./rust/serve-web.ps1
 ```
+
+本地桌面版使用 `cargo run -p capl-desktop`。浏览器版使用 Trunk；首次执行前安装：
+`cargo install --locked trunk`。
+GPUI 当前的 WebAssembly backend 需要 nightly，首次执行：
+`rustup +nightly target add wasm32-unknown-unknown`；`serve-web.ps1` 会自动选择 nightly。
 
 项目文件扩展名固定为 `.caplproj`。同一个 JSON manifest 可以通过原生文件系统适配器保存，也可以通过浏览器 local storage 适配器保存。
 

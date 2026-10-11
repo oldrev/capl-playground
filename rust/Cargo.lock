@@ -963,6 +963,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "capl-web"
+version = "0.4.0"
+dependencies = [
+ "console_error_panic_hook",
+ "gpui-base",
+ "gpui-kit",
+ "gpui-pre-platform",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "cbc"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
