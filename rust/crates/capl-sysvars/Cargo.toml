@@ -1,0 +1,10 @@
+[package]
+name = "capl-sysvars"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Shared system-variable registry and change manager for CAPL simulations"
+
+[dependencies]
+serde.workspace = true
+

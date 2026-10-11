@@ -24,6 +24,7 @@ rust/crates/capl-database-core  messages, signals, nodes and decoding
 rust/crates/capl-database-dbc   DBC reader
 rust/crates/capl-project        .caplproj JSON manifest and storage trait
 rust/crates/capl-runtime        virtual clock, replay and native WASM host
+rust/crates/capl-sysvars        namespaced system-variable registry and events
 rust/crates/capl-desktop        GPUI Kit desktop application
 ```
 

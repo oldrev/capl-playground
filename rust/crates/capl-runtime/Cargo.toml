@@ -8,6 +8,7 @@ description = "Virtual-time trace replay primitives for CAPL simulations"
 [dependencies]
 capl-model.workspace = true
 capl-trace-core.workspace = true
+capl-sysvars.workspace = true
 wasmi.workspace = true
 
 [dev-dependencies]

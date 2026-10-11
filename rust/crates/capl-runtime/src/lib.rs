@@ -1,4 +1,5 @@
 use capl_model::BusFrame;
+use capl_sysvars::{SysVarError, SysVarKey, SysVarStore, SysVarValue};
 use capl_trace_core::TraceEvent;
 use std::fmt;
 use wasmi::{
@@ -71,6 +72,7 @@ pub struct ReplayHandler {
     pub id: Option<u32>,
     pub channel: Option<u16>,
     pub wildcard: bool,
+    pub sysvar: Option<String>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -108,6 +110,7 @@ pub struct WasmReplay {
     store: Store<HostState>,
     instance: wasmi::Instance,
     handlers: Vec<ReplayHandler>,
+    pub sysvars: SysVarStore,
 }
 
 impl WasmReplay {
@@ -215,6 +218,7 @@ impl WasmReplay {
             store,
             instance,
             handlers,
+            sysvars: SysVarStore::default(),
         })
     }
 
@@ -226,6 +230,34 @@ impl WasmReplay {
     }
     pub fn set_time(&mut self, time: VirtualTime) {
         self.store.data_mut().now = time.0;
+    }
+
+    /// Change a system variable and invoke matching `on sysvar` handlers.
+    pub fn set_sysvar(&mut self, path: &str, value: SysVarValue) -> Result<usize, SysVarError> {
+        let change = self.sysvars.set_path(path, value)?;
+        let this_value = change.new.as_i64().unwrap_or(0) as i32;
+        if let Ok(set_this) = self
+            .instance
+            .get_typed_func::<i32, ()>(&self.store, "__set_this")
+        {
+            set_this
+                .call(&mut self.store, this_value)
+                .map_err(|e| SysVarError::Missing(SysVarKey::new("runtime", e.to_string())))?;
+        }
+        let mut invoked = 0;
+        for handler in self.handlers.clone() {
+            if handler.sysvar.as_deref() != Some(path) {
+                continue;
+            }
+            let func = self
+                .instance
+                .get_typed_func::<(), ()>(&self.store, &handler.export_name)
+                .map_err(|_| SysVarError::Missing(SysVarKey::parse(path)))?;
+            func.call(&mut self.store, ())
+                .map_err(|e| SysVarError::Missing(SysVarKey::new("runtime", e.to_string())))?;
+            invoked += 1;
+        }
+        Ok(invoked)
     }
     pub fn run_frame(&mut self, frame: &BusFrame) -> Result<usize, WasmReplayError> {
         self.set_time(VirtualTime(frame.timestamp_us));

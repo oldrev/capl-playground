@@ -24,6 +24,7 @@ capl-database-core  报文、信号、节点和解码模型
 capl-database-dbc   DBC 解析器
 capl-project        .caplproj JSON 项目文件和存储抽象
 capl-runtime        虚拟时钟、回放和原生 WASM 宿主
+capl-sysvars        命名空间系统变量注册表和变更事件
 capl-desktop        GPUI Kit 桌面应用
 ```
 

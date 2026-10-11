@@ -1,6 +1,7 @@
 use capl_driver::{compile, BackendId, Options};
 use capl_model::{BusFrame, Direction};
 use capl_runtime::{ReplayHandler, WasmReplay};
+use capl_sysvars::{SysVarKey, SysVarValue};
 
 #[test]
 fn recorded_frame_invokes_matching_capl_handler() {
@@ -22,6 +23,7 @@ fn recorded_frame_invokes_matching_capl_handler() {
             id: Some(0x100),
             channel: None,
             wildcard: false,
+            sysvar: None,
         }],
     )
     .unwrap();
@@ -29,4 +31,41 @@ fn recorded_frame_invokes_matching_capl_handler() {
         .run_frame(&BusFrame::new(4_200, 1, 0x100, Direction::Rx, vec![1, 2]))
         .unwrap();
     assert_eq!(invoked, 1);
+}
+
+#[test]
+fn system_variable_changes_invoke_capl_handlers() {
+    let out = compile(
+        "on sysvar Foo::Enable { write(\"changed\"); }",
+        Options {
+            backends: vec![BackendId::Wasm],
+            ..Options::default()
+        },
+    );
+    assert!(out.ok, "compile diagnostics: {:?}", out.diagnostics);
+    let artifact = out.wasm.expect("wasm artifact");
+    let mut runtime = WasmReplay::new(
+        &artifact.bytes,
+        artifact.msgbuf_addr,
+        vec![ReplayHandler {
+            export_name: "on_sysvar_Foo_Enable".into(),
+            id: None,
+            channel: None,
+            wildcard: false,
+            sysvar: Some("Foo::Enable".into()),
+        }],
+    )
+    .unwrap();
+    runtime.sysvars.declare(
+        SysVarKey::parse("Foo::Enable"),
+        SysVarValue::Boolean(false),
+        true,
+        None,
+    );
+    assert_eq!(
+        runtime
+            .set_sysvar("Foo::Enable", SysVarValue::Boolean(true))
+            .unwrap(),
+        1
+    );
 }

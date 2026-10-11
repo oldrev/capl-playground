@@ -910,6 +910,7 @@ version = "0.4.0"
 dependencies = [
  "capl-driver",
  "capl-model",
+ "capl-sysvars",
  "capl-trace-core",
  "wasmi",
 ]
@@ -921,6 +922,13 @@ dependencies = [
  "capl-ast",
  "capl-diag",
  "capl-parse",
+]
+
+[[package]]
+name = "capl-sysvars"
+version = "0.4.0"
+dependencies = [
+ "serde",
 ]
 
 [[package]]

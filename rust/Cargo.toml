@@ -18,6 +18,7 @@ members = [
     "crates/capl-runtime",
     "crates/capl-desktop",
     "crates/capl-replay",
+    "crates/capl-sysvars",
 ]
 
 [workspace.package]
@@ -40,6 +41,7 @@ capl-trace-core = { path = "crates/capl-trace-core", version = "0.4.0" }
 capl-database-core = { path = "crates/capl-database-core", version = "0.4.0" }
 capl-project = { path = "crates/capl-project", version = "0.4.0" }
 capl-runtime = { path = "crates/capl-runtime", version = "0.4.0" }
+capl-sysvars = { path = "crates/capl-sysvars", version = "0.4.0" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 wasm-bindgen = "0.2"
