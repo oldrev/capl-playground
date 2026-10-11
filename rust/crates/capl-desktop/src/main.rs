@@ -8,6 +8,8 @@ use capl_ast::{Decl, EventSpec};
 use capl_driver::{compile, BackendId, Options, WasmArtifact};
 use capl_model::{BusFrame, Direction};
 use capl_runtime::{ReplayHandler, WasmReplay};
+use capl_trace_asc::AscReader;
+use capl_trace_core::{TraceEvent, TraceReader};
 use gpui::{
     div, App, ClickEvent, Context, Entity, EventEmitter, FocusHandle, Focusable, IntoElement,
     Render, Window,
@@ -32,6 +34,7 @@ actions!(
         NewProject,
         OpenProject,
         SaveProject,
+        OpenTrace,
         StartSimulation,
         StopSimulation,
         ReplaySample,
@@ -128,6 +131,8 @@ struct Workspace {
     artifact: Option<WasmArtifact>,
     handlers: Vec<ReplayHandler>,
     runtime: Option<WasmReplay>,
+    trace: Vec<TraceEvent>,
+    trace_cursor: usize,
     status: String,
 }
 impl Workspace {
@@ -172,6 +177,8 @@ impl Workspace {
             artifact: None,
             handlers: Vec::new(),
             runtime: None,
+            trace: Vec::new(),
+            trace_cursor: 0,
             status: "Ready".into(),
         }
     }
@@ -222,25 +229,74 @@ impl Workspace {
         cx.notify();
     }
 
-    fn stop_runtime(&mut self, _: &ClickEvent, _: &mut Window, cx: &mut Context<Self>) {
+    fn stop_runtime(&mut self, _: &mut Window, cx: &mut Context<Self>) {
         self.runtime = None;
         self.status = "Stopped".into();
         cx.notify();
     }
 
-    fn replay_sample(&mut self, _: &ClickEvent, window: &mut Window, cx: &mut Context<Self>) {
+    fn replay_sample(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.runtime.is_none() {
             self.start_runtime(window, cx);
         }
         let Some(runtime) = self.runtime.as_mut() else {
             return;
         };
-        let frame = BusFrame::new(100_000, 1, 0x100, Direction::Rx, vec![0x12, 0x34]);
+        let frame = self
+            .trace
+            .iter()
+            .skip(self.trace_cursor)
+            .find_map(|event| match event {
+                TraceEvent::Frame(frame) => Some(frame.clone()),
+                _ => None,
+            })
+            .unwrap_or_else(|| BusFrame::new(100_000, 1, 0x100, Direction::Rx, vec![0x12, 0x34]));
         match runtime.run_frame(&frame) {
             Ok(count) => {
                 self.status = format!("Replayed 0x100 at 100 ms; invoked {count} handler(s)")
             }
             Err(error) => self.status = format!("Replay error: {error}"),
+        }
+        self.trace_cursor = self.trace_cursor.saturating_add(1);
+        cx.notify();
+    }
+
+    fn new_project(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.editor.update(cx, |editor, cx| {
+            editor.set_value(
+                "on start {\n  write(\"new CAPL project\");\n}\n",
+                window,
+                cx,
+            )
+        });
+        self.status = "New project".into();
+        cx.notify();
+    }
+
+    fn open_project(&mut self, _: &mut Window, cx: &mut Context<Self>) {
+        self.status = "Project manager: open a .caplproj from the Project panel".into();
+        cx.notify();
+    }
+
+    fn save_project(&mut self, _: &mut Window, cx: &mut Context<Self>) {
+        self.status = "Project state ready to save as .caplproj".into();
+        cx.notify();
+    }
+
+    fn open_trace(&mut self, _: &mut Window, cx: &mut Context<Self>) {
+        match std::fs::read_to_string("traffic.asc")
+            .ok()
+            .and_then(|text| AscReader.read(&text).ok())
+        {
+            Some(trace) => {
+                self.trace = trace;
+                self.trace_cursor = 0;
+                self.status = format!(
+                    "Loaded {} trace event(s) from traffic.asc",
+                    self.trace.len()
+                );
+            }
+            None => self.status = "No traffic.asc found in the current project directory".into(),
         }
         cx.notify();
     }
@@ -251,6 +307,23 @@ impl Render for Workspace {
         div()
             .size_full()
             .v_flex()
+            .on_action(cx.listener(|this, _: &NewProject, window, cx| this.new_project(window, cx)))
+            .on_action(
+                cx.listener(|this, _: &OpenProject, window, cx| this.open_project(window, cx)),
+            )
+            .on_action(
+                cx.listener(|this, _: &SaveProject, window, cx| this.save_project(window, cx)),
+            )
+            .on_action(cx.listener(|this, _: &OpenTrace, window, cx| this.open_trace(window, cx)))
+            .on_action(
+                cx.listener(|this, _: &StartSimulation, window, cx| this.start_runtime(window, cx)),
+            )
+            .on_action(
+                cx.listener(|this, _: &StopSimulation, window, cx| this.stop_runtime(window, cx)),
+            )
+            .on_action(
+                cx.listener(|this, _: &ReplaySample, window, cx| this.replay_sample(window, cx)),
+            )
             .child(
                 h_flex()
                     .h_10()
@@ -274,6 +347,7 @@ impl Render for Workspace {
                             menu.menu("Run", Box::new(StartSimulation))
                                 .menu("Stop", Box::new(StopSimulation))
                                 .menu("Replay sample", Box::new(ReplaySample))
+                                .menu("Open trace", Box::new(OpenTrace))
                         },
                     ))
                     .child(
@@ -296,13 +370,17 @@ impl Render for Workspace {
                         Button::new("stop")
                             .danger()
                             .label("Stop")
-                            .on_click(cx.listener(Self::stop_runtime)),
+                            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                                this.stop_runtime(window, cx)
+                            })),
                     )
                     .child(
                         Button::new("replay")
                             .outline()
                             .label("Replay sample")
-                            .on_click(cx.listener(Self::replay_sample)),
+                            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                                this.replay_sample(window, cx)
+                            })),
                     )
                     .child(div().flex_1())
                     .child(status),
