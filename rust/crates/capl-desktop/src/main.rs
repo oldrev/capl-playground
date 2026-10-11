@@ -146,6 +146,9 @@ struct Workspace {
     trace_cursor: usize,
     diagnostics: Entity<TextPanel>,
     trace_panel: Entity<TextPanel>,
+    ast_panel: Entity<TextPanel>,
+    c_panel: Entity<TextPanel>,
+    wasm_panel: Entity<TextPanel>,
     status: String,
 }
 impl Workspace {
@@ -169,12 +172,21 @@ impl Workspace {
                 cx,
             )
         });
+        let ast_panel =
+            cx.new(|cx| TextPanel::new("ast-output", "AST", "Build to inspect the AST JSON.", cx));
+        let c_panel =
+            cx.new(|cx| TextPanel::new("c-output", "C", "Build to inspect generated C.", cx));
+        let wasm_panel = cx
+            .new(|cx| TextPanel::new("wasm-output", "WASM", "Build to inspect generated WAT.", cx));
         let editor_state = editor.read(cx).editor.clone();
         let center = DockLayout::tabs().panel_view(panel_handle(editor.clone()), cx);
         let left = DockLayout::tabs().panel_view(panel_handle(source), cx);
         let bottom = DockLayout::tabs()
             .panel_view(panel_handle(diagnostics.clone()), cx)
-            .panel_view(panel_handle(trace.clone()), cx);
+            .panel_view(panel_handle(trace.clone()), cx)
+            .panel_view(panel_handle(ast_panel.clone()), cx)
+            .panel_view(panel_handle(c_panel.clone()), cx)
+            .panel_view(panel_handle(wasm_panel.clone()), cx);
         dock.update(cx, |area, cx| {
             area.set_center(center, window, cx);
             area.set_dock(DockPlacement::Left, left, window, cx);
@@ -194,6 +206,9 @@ impl Workspace {
             trace_cursor: 0,
             diagnostics,
             trace_panel: trace,
+            ast_panel,
+            c_panel,
+            wasm_panel,
             status: "Ready".into(),
         }
     }
@@ -231,6 +246,20 @@ impl Workspace {
             .collect();
         self.artifact = out.wasm;
         self.runtime = None;
+        self.ast_panel
+            .update(cx, |panel, cx| panel.set_body(out.ast_json.clone(), cx));
+        self.c_panel.update(cx, |panel, cx| {
+            panel.set_body(out.c.clone().unwrap_or_else(|| "No C artifact".into()), cx)
+        });
+        self.wasm_panel.update(cx, |panel, cx| {
+            panel.set_body(
+                self.artifact
+                    .as_ref()
+                    .map(|artifact| artifact.wat.clone())
+                    .unwrap_or_else(|| "No WASM artifact".into()),
+                cx,
+            )
+        });
         self.diagnostics.update(cx, |panel, cx| {
             panel.set_body(
                 format!(
