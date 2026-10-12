@@ -17,7 +17,7 @@ use capl_trace_asc::AscReader;
 use capl_trace_core::{TraceEvent, TraceReader};
 use gpui::{
     div, App, ClickEvent, ClipboardItem, Context, Entity, EventEmitter, FocusHandle, Focusable,
-    IntoElement, Render, Window,
+    HighlightStyle, IntoElement, Render, ScrollHandle, SharedString, Window,
 };
 use gpui_base::dock::PanelEvent;
 use gpui_base::StyledExt;
@@ -25,12 +25,13 @@ use gpui_kit::component::{
     button::{Button, ButtonVariants},
     dock::{panel_handle, DockArea, DockLayout, DockPlacement, DockSkin, Panel},
     h_flex,
-    input::{Copy, Cut, Editor, EditorState, Input, InputState, Paste, Redo, SelectAll, Undo},
+    input::{Copy, Cut, Editor, EditorState, FoldRange, Input, InputEdit, InputHighlighter, InputState, Paste, Redo, SelectAll, Undo, Rope},
     menu::DropdownMenu as _,
     ActiveTheme as _, Sizable,
 };
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
+use std::{ops::Range, rc::Rc};
 
 const DOCK_ID: &str = "capl-workspace";
 
@@ -90,6 +91,7 @@ struct TextPanel {
     title: &'static str,
     body: String,
     focus: FocusHandle,
+    scroll: ScrollHandle,
 }
 
 fn wasm_panel_body(artifact: &WasmArtifact) -> String {
@@ -182,12 +184,14 @@ impl TextPanel {
             title,
             body: body.into(),
             focus: cx.focus_handle(),
+            scroll: ScrollHandle::new(),
         }
     }
 }
 impl TextPanel {
     fn set_body(&mut self, body: impl Into<String>, cx: &mut Context<Self>) {
         self.body = body.into();
+        self.scroll.scroll_to_bottom();
         cx.notify();
     }
 }
@@ -293,11 +297,48 @@ impl Render for TextPanel {
                     .id("panel-body")
                     .flex_1()
                     .overflow_y_scroll()
+                    .track_scroll(&self.scroll)
                     .whitespace_normal()
                     .child(self.body.clone()),
             );
         }
         panel
+    }
+}
+
+struct CaplHighlighter { text: String }
+
+impl InputHighlighter for CaplHighlighter {
+    fn language(&self) -> SharedString { "capl".into() }
+    fn update(&mut self, _: Option<InputEdit>, text: &Rope, _: bool, _: &mut Window, _: &mut Context<EditorState>) { self.text = text.to_string(); }
+    fn fold_ranges(&self, _: &Rope) -> Vec<FoldRange> { Vec::new() }
+    fn styles(&self, range: &Range<usize>, _: &dyn gpui_kit::component::input::HighlightStyleResolver) -> Vec<(Range<usize>, HighlightStyle)> {
+        let keywords = ["variables", "on", "start", "timer", "message", "key", "sysvar", "envVar", "busOff", "errorFrame", "write", "setTimer"];
+        let mut out = Vec::new();
+        let mut cursor = range.start;
+        let bytes = self.text.as_bytes();
+        let mut i = range.start;
+        while i < range.end {
+            let c = bytes.get(i).copied().unwrap_or_default() as char;
+            let kind = if c == '"' {
+                let end = (i + 1..range.end).find(|&j| bytes.get(j).copied() == Some(b'"')).map_or(range.end, |j| j + 1);
+                Some((end, gpui::hsla(0.08, 0.8, 0.68, 1.0)))
+            } else if c.is_ascii_digit() {
+                let end = (i + 1..range.end).find(|&j| !bytes.get(j).copied().is_some_and(|b| (b as char).is_ascii_hexdigit() || b == b'x')).unwrap_or(range.end);
+                Some((end, gpui::hsla(0.55, 0.7, 0.72, 1.0)))
+            } else if c.is_ascii_alphabetic() || c == '_' {
+                let end = (i + 1..range.end).find(|&j| !bytes.get(j).copied().is_some_and(|b| (b as char).is_ascii_alphanumeric() || b == b'_')).unwrap_or(range.end);
+                let word = &self.text[i..end];
+                keywords.contains(&word).then_some((end, gpui::hsla(0.78, 0.65, 0.78, 1.0)))
+            } else { None };
+            if let Some((end, color)) = kind {
+                if cursor < i { out.push((cursor..i, HighlightStyle::default())); }
+                out.push((i..end, HighlightStyle { color: Some(color), ..Default::default() }));
+                cursor = end; i = end;
+            } else { i += 1; }
+        }
+        if cursor < range.end { out.push((cursor..range.end, HighlightStyle::default())); }
+        out
     }
 }
 
@@ -310,8 +351,13 @@ struct EditorPanel {
 impl EditorPanel {
     fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let editor = cx.new(|cx| {
-            EditorState::new(window, cx)
-                .default_value("variables {\n  msTimer replayTimer;\n}\n\non start {\n  write(\"ready for trace replay\");\n  setTimer(replayTimer, 100);\n}\n\non timer replayTimer {\n  write(\"timer at %d ms\", timeNow());\n}\n\non message 0x100 {\n  write(\"received 0x100\");\n}\n\non key 'a' {\n  write(\"key %c\", this);\n}\n\non sysvar Foo {\n  write(\"sysvar %d\", this);\n}\n\non envVar Foo {\n  write(\"envvar %d\", this);\n}\n\non busOff { write(\"busOff\"); }\n\non errorFrame { write(\"errorFrame\"); }\n")
+                {
+                    let mut state = EditorState::new(window, cx).language("capl");
+                    state.set_highlighter_factory(Rc::new(|language| {
+                        (language == "capl").then(|| Box::new(CaplHighlighter { text: String::new() }) as Box<dyn InputHighlighter>)
+                    }), cx);
+                    state.default_value("variables {\n  msTimer replayTimer;\n}\n\non start {\n  write(\"ready for trace replay\");\n  setTimer(replayTimer, 100);\n}\n\non timer replayTimer {\n  write(\"timer at %d ms\", timeNow());\n}\n\non message 0x100 {\n  write(\"received 0x100\");\n}\n\non key 'a' {\n  write(\"key %c\", this);\n}\n\non sysvar Foo {\n  write(\"sysvar %d\", this);\n}\n\non envVar Foo {\n  write(\"envvar %d\", this);\n}\n\non busOff { write(\"busOff\"); }\n\non errorFrame { write(\"errorFrame\"); }\n")
+                }
                 .line_number(true)
                 .indent_guides(true)
         });
@@ -423,7 +469,7 @@ impl Render for SimulationPanel {
                     .gap_2()
                     .items_center()
                     .child(div().text_size(px(10.)).font_weight(gpui::FontWeight::BOLD).text_color(cx.theme().muted_foreground).child("VIRTUAL TIME"))
-                    .child(div().px_2().py_1().rounded(cx.theme().radius).bg(cx.theme().secondary).text_color(cx.theme().secondary_foreground).font_family(cx.theme().mono_font_family.clone()).text_size(px(11.)).child(format!("{:0.3} s", self.virtual_time_us as f64 / 1_000_000.)))
+                    .child(div().px_2().py_1().rounded(cx.theme().radius).bg(cx.theme().secondary).text_color(cx.theme().secondary_foreground).font_family(cx.theme().mono_font_family.clone()).text_size(px(11.)).child(format!("{} ms", self.virtual_time_us / 1_000)))
                     .child(Button::new("sim-advance-100").small().ghost().label("+100 ms").on_click(|_, window, cx| window.dispatch_action(Box::new(Advance100ms), cx)))
                     .child(Button::new("sim-advance-1000").small().ghost().label("+1 s").on_click(|_, window, cx| window.dispatch_action(Box::new(Advance1s), cx)))
                     .child(Button::new("sim-reset-simulation").small().ghost().label("Reset").on_click(|_, window, cx| window.dispatch_action(Box::new(ResetSimulation), cx)))
@@ -603,7 +649,8 @@ impl Workspace {
             .panel_view(panel_handle(diagnostics.clone()), cx)
             .panel_view(panel_handle(trace.clone()), cx)
             .panel_view(panel_handle(bus_trace_panel.clone()), cx)
-            .panel_view(panel_handle(database_panel.clone()), cx)
+            .panel_view(panel_handle(database_panel.clone()), cx);
+        let right = DockLayout::tabs()
             .panel_view(panel_handle(ast_panel.clone()), cx)
             .panel_view(panel_handle(c_panel.clone()), cx)
             .panel_view(panel_handle(wasm_panel.clone()), cx)
@@ -621,12 +668,15 @@ impl Workspace {
             area.set_dock(DockPlacement::Left, left, window, cx);
             area.set_dock_size(DockPlacement::Left, project_width, window, cx);
             area.set_dock(DockPlacement::Bottom, bottom, window, cx);
+            area.set_dock(DockPlacement::Right, right, window, cx);
             let simulation_panel_id =
                 gpui_base::dock::PanelView::panel_id(&simulation_panel, cx);
             area.select_panel(simulation_panel_id, window, cx);
             area.set_dock_size(DockPlacement::Bottom, px(260.), window, cx);
+            area.set_dock_size(DockPlacement::Right, px(320.), window, cx);
             area.set_dock_collapsible(DockPlacement::Left, true, window, cx);
             area.set_dock_collapsible(DockPlacement::Bottom, true, window, cx);
+            area.set_dock_collapsible(DockPlacement::Right, true, window, cx);
         });
         Self {
             dock,
@@ -2240,192 +2290,6 @@ impl Render for Workspace {
                             .h_full()
                             .overflow_hidden()
                             .child(self.dock.clone()),
-                    ),
-            )
-            .child(
-                h_flex()
-                    .id("editor-status")
-                    .h_0()
-                    .overflow_hidden()
-                    .gap_2()
-                    .px_3()
-                    .py_1()
-                    .bg(cx.theme().muted)
-                    .text_color(cx.theme().muted_foreground)
-                    .child("CAPL source.can")
-                    .child("Ln 1, Col 1")
-                    .child(
-                        div()
-                            .px_2()
-                            .py_0p5()
-                            .rounded(cx.theme().radius)
-                            .bg(cx.theme().secondary)
-                            .text_color(cx.theme().secondary_foreground)
-                            .child(status.clone()),
-                    )
-                    .child(div().flex_1())
-                    .child("A-")
-                    .child("A+")
-                    .child("UTF-8"),
-            )
-            .child(
-                div()
-                    .id("legacy-simulation-controls")
-                    .test_support()
-                    .h_0()
-                    .overflow_hidden()
-                    .v_flex()
-                    .gap_2()
-                    .px_3()
-                    .py_2()
-                    .bg(cx.theme().status_bar)
-                    .border_t_1()
-                    .border_color(cx.theme().status_bar_border)
-                    .child(
-                        h_flex()
-                            .gap_2()
-                            .child(
-                                div()
-                                    .text_size(px(10.))
-                                    .font_weight(gpui::FontWeight::BOLD)
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child("VIRTUAL TIME"),
-                            )
-                            .child(
-                                div()
-                                    .px_2()
-                                    .py_1()
-                                    .rounded(cx.theme().radius)
-                                    .bg(cx.theme().secondary)
-                                    .text_color(cx.theme().secondary_foreground)
-                                    .font_family(cx.theme().mono_font_family.clone())
-                                    .text_size(px(11.))
-                                    .child(format!(
-                                        "{:0.3} s",
-                                        self.last_virtual_time_us as f64 / 1_000_000.
-                                    )),
-                            )
-                            .child(
-                                Button::new("advance-100")
-                                    .small()
-                                    .ghost()
-                                    .label("+100 ms")
-                                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                                        this.advance_time(100_000, cx)
-                                    })),
-                            )
-                            .child(
-                                Button::new("advance-1000")
-                                    .small()
-                                    .ghost()
-                                    .label("+1 s")
-                                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                                        this.advance_time(1_000_000, cx)
-                                    })),
-                            )
-                            .child(
-                                Button::new("reset-simulation")
-                                    .small()
-                                    .ghost()
-                                    .label("Reset")
-                                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                                        this.reset_runtime(window, cx)
-                                    })),
-                            )
-                            .child(div().flex_1())
-                            .child(
-                                div()
-                                    .text_size(px(10.))
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child(format!(
-                                        "PENDING TIMERS  {}",
-                                        self.pending_timer_count()
-                                    )),
-                            ),
-                    )
-                    .child(
-                        h_flex()
-                            .gap_2()
-                            .child(
-                                div()
-                                    .text_size(px(10.))
-                                    .font_weight(gpui::FontWeight::BOLD)
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child("CAN FRAME"),
-                            )
-                            .child(Input::new(&self.frame_id_input).small().w(px(78.)))
-                            .child(Input::new(&self.frame_data_input).small().w(px(160.)))
-                            .child(
-                                Button::new("inject")
-                                    .small()
-                                    .primary()
-                                    .label("Inject")
-                                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                                        this.inject_sample(window, cx)
-                                    })),
-                            )
-                            .child(
-                                div()
-                                    .text_size(px(10.))
-                                    .font_weight(gpui::FontWeight::BOLD)
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child("KEY"),
-                            )
-                            .child(Input::new(&self.key_input).small().w(px(42.)))
-                            .child(
-                                Button::new("press-key")
-                                    .small()
-                                    .ghost()
-                                    .label("Press")
-                                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                                        this.inject_key(window, cx)
-                                    })),
-                            )
-                            .child(
-                                div()
-                                    .text_size(px(10.))
-                                    .font_weight(gpui::FontWeight::BOLD)
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child("SYSVAR"),
-                            )
-                            .child(Input::new(&self.sysvar_name_input).small().w(px(120.)))
-                            .child(Input::new(&self.sysvar_value_input).small().w(px(48.)))
-                            .child(
-                                Button::new("trigger-sysvar")
-                                    .small()
-                                    .ghost()
-                                    .label("Set")
-                                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                                        this.trigger_sysvar(window, cx)
-                                    })),
-                            )
-                            .child(
-                                Button::new("trigger-envvar")
-                                    .small()
-                                    .ghost()
-                                    .label("Env")
-                                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                                        this.trigger_envvar(window, cx)
-                                    })),
-                            )
-                            .child(
-                                Button::new("error-frame")
-                                    .small()
-                                    .ghost()
-                                    .label("errorFrame")
-                                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                                        this.inject_bus_event("errorFrame", window, cx)
-                                    })),
-                            )
-                            .child(
-                                Button::new("bus-off")
-                                    .small()
-                                    .ghost()
-                                    .label("busOff")
-                                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                                        this.inject_bus_event("busOff", window, cx)
-                                    })),
-                            ),
                     ),
             )
             .child(
