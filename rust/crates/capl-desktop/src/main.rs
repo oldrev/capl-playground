@@ -63,6 +63,15 @@ actions!(
         StartSimulation,
         StopSimulation,
         ResetSimulation,
+        Advance100ms,
+        Advance1s,
+        InjectFrame,
+        InjectKey,
+        SetSysvar,
+        SetEnvvar,
+        InjectErrorFrame,
+        InjectBusOff,
+        ToggleSimulationPanel,
         ExportAst,
         ExportC,
         ExportWasm,
@@ -203,6 +212,8 @@ impl Render for TextPanel {
         let is_project = self.name == "project-files";
         let empty_project = is_project && self.body == "No project open";
         let mut panel = div()
+            .id(self.name)
+            .test_support()
             .size_full()
             .p_4()
             .v_flex()
@@ -331,15 +342,125 @@ impl Focusable for EditorPanel {
 }
 impl Render for EditorPanel {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-        Editor::new(&self.editor)
+        div()
+            .id("source-editor")
+            .test_support()
             .size_full()
-            .text_size(px(self.font_size))
-            .into_any_element()
+            .child(
+                Editor::new(&self.editor)
+                    .size_full()
+                    .text_size(px(self.font_size)),
+            )
+    }
+}
+
+struct SimulationPanel {
+    frame_id_input: Entity<InputState>,
+    frame_data_input: Entity<InputState>,
+    sysvar_name_input: Entity<InputState>,
+    sysvar_value_input: Entity<InputState>,
+    key_input: Entity<InputState>,
+    virtual_time_us: u64,
+    pending_timers: usize,
+    focus: FocusHandle,
+}
+
+impl SimulationPanel {
+    fn new(
+        frame_id_input: Entity<InputState>,
+        frame_data_input: Entity<InputState>,
+        sysvar_name_input: Entity<InputState>,
+        sysvar_value_input: Entity<InputState>,
+        key_input: Entity<InputState>,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        Self {
+            frame_id_input,
+            frame_data_input,
+            sysvar_name_input,
+            sysvar_value_input,
+            key_input,
+            virtual_time_us: 0,
+            pending_timers: 0,
+            focus: cx.focus_handle(),
+        }
+    }
+
+    fn set_runtime_state(&mut self, virtual_time_us: u64, pending_timers: usize) {
+        self.virtual_time_us = virtual_time_us;
+        self.pending_timers = pending_timers;
+    }
+}
+
+impl gpui_base::dock::Panel for SimulationPanel {
+    fn panel_name(&self) -> &'static str {
+        "simulation-controls"
+    }
+}
+impl Panel for SimulationPanel {
+    fn title(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        "Simulation"
+    }
+}
+impl EventEmitter<PanelEvent> for SimulationPanel {}
+impl Focusable for SimulationPanel {
+    fn focus_handle(&self, _: &App) -> FocusHandle {
+        self.focus.clone()
+    }
+}
+impl Render for SimulationPanel {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .id("simulation-controls")
+            .test_support()
+            .size_full()
+            .v_flex()
+            .gap_2()
+            .p_2()
+            .bg(cx.theme().background)
+            .child(
+                h_flex()
+                    .gap_2()
+                    .items_center()
+                    .child(div().text_size(px(10.)).font_weight(gpui::FontWeight::BOLD).text_color(cx.theme().muted_foreground).child("VIRTUAL TIME"))
+                    .child(div().px_2().py_1().rounded(cx.theme().radius).bg(cx.theme().secondary).text_color(cx.theme().secondary_foreground).font_family(cx.theme().mono_font_family.clone()).text_size(px(11.)).child(format!("{:0.3} s", self.virtual_time_us as f64 / 1_000_000.)))
+                    .child(Button::new("sim-advance-100").small().ghost().label("+100 ms").on_click(|_, window, cx| window.dispatch_action(Box::new(Advance100ms), cx)))
+                    .child(Button::new("sim-advance-1000").small().ghost().label("+1 s").on_click(|_, window, cx| window.dispatch_action(Box::new(Advance1s), cx)))
+                    .child(Button::new("sim-reset-simulation").small().ghost().label("Reset").on_click(|_, window, cx| window.dispatch_action(Box::new(ResetSimulation), cx)))
+                    .child(div().flex_1())
+                    .child(div().text_size(px(10.)).text_color(cx.theme().muted_foreground).child(format!("PENDING TIMERS  {}", self.pending_timers))),
+            )
+            .child(
+                h_flex()
+                    .gap_2()
+                    .items_center()
+                    .child(div().text_size(px(10.)).font_weight(gpui::FontWeight::BOLD).text_color(cx.theme().muted_foreground).child("CAN FRAME"))
+                    .child(Input::new(&self.frame_id_input).small().w(px(78.)))
+                    .child(Input::new(&self.frame_data_input).small().w(px(140.)))
+                    .child(Button::new("sim-inject").small().primary().label("Inject").on_click(|_, window, cx| window.dispatch_action(Box::new(InjectFrame), cx)))
+                    .child(div().w(px(1.)).h(px(20.)).bg(cx.theme().border))
+                    .child(div().text_size(px(10.)).font_weight(gpui::FontWeight::BOLD).text_color(cx.theme().muted_foreground).child("KEY"))
+                    .child(Input::new(&self.key_input).small().w(px(42.)))
+                    .child(Button::new("sim-press-key").small().ghost().label("Press").on_click(|_, window, cx| window.dispatch_action(Box::new(InjectKey), cx))),
+            )
+            .child(
+                h_flex()
+                    .gap_2()
+                    .items_center()
+                    .child(div().text_size(px(10.)).font_weight(gpui::FontWeight::BOLD).text_color(cx.theme().muted_foreground).child("SYSVAR"))
+                    .child(Input::new(&self.sysvar_name_input).small().w(px(120.)))
+                    .child(Input::new(&self.sysvar_value_input).small().w(px(48.)))
+                    .child(Button::new("sim-trigger-sysvar").small().ghost().label("Set").on_click(|_, window, cx| window.dispatch_action(Box::new(SetSysvar), cx)))
+                    .child(Button::new("sim-trigger-envvar").small().ghost().label("Env").on_click(|_, window, cx| window.dispatch_action(Box::new(SetEnvvar), cx)))
+                    .child(Button::new("sim-error-frame").small().ghost().label("errorFrame").on_click(|_, window, cx| window.dispatch_action(Box::new(InjectErrorFrame), cx)))
+                    .child(Button::new("sim-bus-off").small().ghost().label("busOff").on_click(|_, window, cx| window.dispatch_action(Box::new(InjectBusOff), cx))),
+            )
     }
 }
 
 pub struct Workspace {
     dock: Entity<DockArea>,
+    simulation_panel: Entity<SimulationPanel>,
     editor: Entity<EditorState>,
     frame_id_input: Entity<InputState>,
     frame_data_input: Entity<InputState>,
@@ -407,6 +528,16 @@ impl Workspace {
                 .default_value("a")
                 .placeholder("Key")
         });
+        let simulation_panel = cx.new(|cx| {
+            SimulationPanel::new(
+                frame_id_input.clone(),
+                frame_data_input.clone(),
+                sysvar_name_input.clone(),
+                sysvar_value_input.clone(),
+                key_input.clone(),
+                cx,
+            )
+        });
         let trace = cx.new(|cx| TextPanel::new("trace-replay", "Trace Replay", "No trace loaded. Use Run → Open trace or place traffic.asc in the project directory.", cx));
         let database_panel = cx.new(|cx| {
             TextPanel::new(
@@ -466,6 +597,7 @@ impl Workspace {
         let center = DockLayout::tabs().panel_view(panel_handle(editor.clone()), cx);
         let left = DockLayout::tabs().panel_view(panel_handle(source.clone()), cx);
         let bottom = DockLayout::tabs()
+            .panel_view(panel_handle(simulation_panel.clone()), cx)
             .panel_view(panel_handle(console_panel.clone()), cx)
             .panel_view(panel_handle(runtime_panel.clone()), cx)
             .panel_view(panel_handle(diagnostics.clone()), cx)
@@ -489,12 +621,16 @@ impl Workspace {
             area.set_dock(DockPlacement::Left, left, window, cx);
             area.set_dock_size(DockPlacement::Left, project_width, window, cx);
             area.set_dock(DockPlacement::Bottom, bottom, window, cx);
+            let simulation_panel_id =
+                gpui_base::dock::PanelView::panel_id(&simulation_panel, cx);
+            area.select_panel(simulation_panel_id, window, cx);
             area.set_dock_size(DockPlacement::Bottom, px(260.), window, cx);
             area.set_dock_collapsible(DockPlacement::Left, true, window, cx);
             area.set_dock_collapsible(DockPlacement::Bottom, true, window, cx);
         });
         Self {
             dock,
+            simulation_panel,
             editor: editor_state,
             frame_id_input,
             frame_data_input,
@@ -817,9 +953,9 @@ impl Workspace {
         cx.notify();
     }
 
-    fn select_output_panel(
+    fn select_output_panel<T: Panel>(
         &mut self,
-        panel: Entity<TextPanel>,
+        panel: Entity<T>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -1738,6 +1874,14 @@ fn format_runtime_event(event: &RuntimeEvent) -> String {
 }
 impl Render for Workspace {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let virtual_time_us = self
+            .runtime
+            .as_ref()
+            .map_or(self.last_virtual_time_us, |runtime| runtime.now_us());
+        let pending_timers = self.pending_timer_count();
+        self.simulation_panel.update(cx, |panel, _| {
+            panel.set_runtime_state(virtual_time_us, pending_timers)
+        });
         let status = self.status.clone();
         div()
             .size_full()
@@ -1764,6 +1908,17 @@ impl Render for Workspace {
             .on_action(
                 cx.listener(|this, _: &ResetSimulation, window, cx| this.reset_runtime(window, cx)),
             )
+            .on_action(cx.listener(|this, _: &Advance100ms, _, cx| this.advance_time(100_000, cx)))
+            .on_action(cx.listener(|this, _: &Advance1s, _, cx| this.advance_time(1_000_000, cx)))
+            .on_action(cx.listener(|this, _: &InjectFrame, window, cx| this.inject_sample(window, cx)))
+            .on_action(cx.listener(|this, _: &InjectKey, window, cx| this.inject_key(window, cx)))
+            .on_action(cx.listener(|this, _: &SetSysvar, window, cx| this.trigger_sysvar(window, cx)))
+            .on_action(cx.listener(|this, _: &SetEnvvar, window, cx| this.trigger_envvar(window, cx)))
+            .on_action(cx.listener(|this, _: &InjectErrorFrame, window, cx| this.inject_bus_event("errorFrame", window, cx)))
+            .on_action(cx.listener(|this, _: &InjectBusOff, window, cx| this.inject_bus_event("busOff", window, cx)))
+            .on_action(cx.listener(|this, _: &ToggleSimulationPanel, window, cx| {
+                this.select_output_panel(this.simulation_panel.clone(), window, cx)
+            }))
             .on_action(cx.listener(|this, _: &ExportAst, window, cx| this.export_ast(window, cx)))
             .on_action(cx.listener(|this, _: &ExportC, window, cx| this.export_c(window, cx)))
             .on_action(cx.listener(|this, _: &ExportWasm, window, cx| this.export_wasm(window, cx)))
@@ -1802,6 +1957,9 @@ impl Render for Workspace {
                     this.select_output_panel(this.architecture_panel.clone(), window, cx)
                 }),
             )
+            .on_action(cx.listener(|this, _: &ShowArchitecture, window, cx| {
+                this.show_architecture(window, cx)
+            }))
             .on_action(
                 cx.listener(|this, _: &ToggleAstView, window, cx| this.toggle_ast_view(window, cx)),
             )
@@ -1896,8 +2054,7 @@ impl Render for Workspace {
                             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                                 this.reset_runtime(window, cx)
                             })),
-                    )
-                    ,
+                    ),
             )
             .child(
                 h_flex()
@@ -2001,10 +2158,95 @@ impl Render for Workspace {
                     )
                     .child(div().flex_1()),
             )
-            .child(div().id("main-dock").flex_1().child(self.dock.clone()))
+            .child(
+                h_flex()
+                    .id("workspace-shell")
+                    .test_support()
+                    .flex_1()
+                    .min_h_0()
+                    .items_stretch()
+                    .overflow_hidden()
+                    .child(
+                        div()
+                            .id("activity-bar")
+                            .test_support()
+                            .w(px(48.))
+                            .flex_shrink_0()
+                            .h_full()
+                            .v_flex()
+                            .items_center()
+                            .gap_2()
+                            .py_2()
+                            .bg(cx.theme().title_bar)
+                            .border_r_1()
+                            .border_color(cx.theme().border)
+                            .child(
+                                div()
+                                    .w_8()
+                                    .h_8()
+                                    .rounded(px(6.))
+                                    .bg(cx.theme().primary)
+                                    .text_color(cx.theme().primary_foreground)
+                                    .items_center()
+                                    .justify_center()
+                                    .font_weight(gpui::FontWeight::BOLD)
+                                    .child("C"),
+                            )
+                            .child(
+                                Button::new("activity-explorer")
+                                    .small()
+                                    .ghost()
+                                    .label("▤")
+                                    .on_click(|_, window, cx| {
+                                        window.dispatch_action(Box::new(OpenProject), cx)
+                                    }),
+                            )
+                            .child(
+                                Button::new("activity-trace")
+                                    .small()
+                                    .ghost()
+                                    .label("⌁")
+                                    .on_click(|_, window, cx| {
+                                        window.dispatch_action(Box::new(ToggleTracePanel), cx)
+                                    }),
+                            )
+                            .child(
+                                Button::new("activity-diagnostics")
+                                    .small()
+                                    .ghost()
+                                    .label("!")
+                                    .on_click(|_, window, cx| {
+                                        window.dispatch_action(Box::new(ToggleDiagnosticsPanel), cx)
+                                    }),
+                            )
+                            .child(div().flex_1())
+                            .child(
+                                Button::new("activity-architecture")
+                                    .small()
+                                    .ghost()
+                                    .label("⚙")
+                                    .on_click(|_, window, cx| {
+                                        window
+                                            .dispatch_action(Box::new(ToggleArchitecturePanel), cx)
+                                    }),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .id("main-dock")
+                            .test_support()
+                            .flex_1()
+                            .min_w_0()
+                            .h_full()
+                            .overflow_hidden()
+                            .child(self.dock.clone()),
+                    ),
+            )
             .child(
                 h_flex()
                     .id("editor-status")
+                    .h_0()
+                    .overflow_hidden()
                     .gap_2()
                     .px_3()
                     .py_1()
@@ -2019,7 +2261,7 @@ impl Render for Workspace {
                             .rounded(cx.theme().radius)
                             .bg(cx.theme().secondary)
                             .text_color(cx.theme().secondary_foreground)
-                            .child(status),
+                            .child(status.clone()),
                     )
                     .child(div().flex_1())
                     .child("A-")
@@ -2028,8 +2270,10 @@ impl Render for Workspace {
             )
             .child(
                 div()
-                    .id("simulation-controls")
+                    .id("legacy-simulation-controls")
                     .test_support()
+                    .h_0()
+                    .overflow_hidden()
                     .v_flex()
                     .gap_2()
                     .px_3()
@@ -2183,6 +2427,35 @@ impl Render for Workspace {
                                     })),
                             ),
                     ),
+            )
+            .child(
+                h_flex()
+                    .id("status-bar")
+                    .test_support()
+                    .h(px(26.))
+                    .flex_shrink_0()
+                    .gap_2()
+                    .px_3()
+                    .items_center()
+                    .bg(cx.theme().muted)
+                    .text_color(cx.theme().muted_foreground)
+                    .border_t_1()
+                    .border_color(cx.theme().border)
+                    .child("CAPL source.can")
+                    .child("Ln 1, Col 1")
+                    .child(
+                        div()
+                            .px_2()
+                            .py_0p5()
+                            .rounded(cx.theme().radius)
+                            .bg(cx.theme().secondary)
+                            .text_color(cx.theme().secondary_foreground)
+                            .child(status),
+                    )
+                    .child(div().flex_1())
+                    .child("A-")
+                    .child("A+")
+                    .child("UTF-8"),
             )
     }
 }

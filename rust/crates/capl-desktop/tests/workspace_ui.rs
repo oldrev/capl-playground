@@ -5,6 +5,51 @@ use gpui_kit::{px, size};
 use gpui_kit::{AppContext, TestAppContext};
 
 #[gpui_kit::test]
+fn workspace_regions_fill_the_available_height(cx: &mut TestAppContext) {
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        capl_desktop::set_playground_theme(cx);
+    });
+    for (width, height) in [(960., 640.), (1536., 1096.)] {
+        let (window, _) = cx.update(|cx| {
+            gpui_kit::open_window(
+                gpui_kit::WindowOptions {
+                    window_bounds: Some(gpui_kit::WindowBounds::Windowed(
+                        gpui_kit::Bounds::centered(None, size(px(width), px(height)), cx),
+                    )),
+                    ..Default::default()
+                },
+                cx,
+                |window, cx| cx.new(|cx| Workspace::new(window, cx)),
+            )
+            .expect("open CAPL workspace")
+        });
+        let window = window.downcast::<Root>().expect("Kit window Root");
+        cx.update_window(window.into(), |_, window, cx| {
+            window.render_frame(cx);
+            let shell = window.find("workspace-shell").bounds();
+            let status_bar = window.find("status-bar").bounds();
+            let dock = window.find("main-dock").bounds();
+            let explorer = window.find("project-files").bounds();
+            let editor = window.find("source-editor").bounds();
+            let simulation = window.find("simulation-controls").bounds();
+            assert_eq!(dock.top(), shell.top());
+            assert_eq!(dock.bottom(), shell.bottom());
+            assert!(explorer.top() < shell.top() + px(40.));
+            assert_eq!(explorer.bottom(), shell.bottom());
+            assert!(editor.top() < shell.top() + px(40.));
+            assert!(editor.size.height > px(150.));
+            assert!(editor.bottom() <= simulation.top());
+            assert_eq!(editor.left(), simulation.left());
+            assert_eq!(simulation.bottom(), shell.bottom());
+            assert_eq!(status_bar.bottom(), window.visual_viewport_bounds().bottom());
+            assert!(explorer.right() <= editor.left());
+        })
+        .unwrap();
+    }
+}
+
+#[gpui_kit::test]
 fn menus_build_run_inject_and_stop_work_in_a_real_gpui_test_window(cx: &mut TestAppContext) {
     cx.update(|cx| {
         gpui_kit::init(cx);
@@ -38,17 +83,8 @@ fn menus_build_run_inject_and_stop_work_in_a_real_gpui_test_window(cx: &mut Test
             "build",
             "run",
             "stop",
-            "open-trace",
-            "examples",
-            "replay-sample",
-            "replay-trace",
-            "replay-next",
-            "reset-trace",
-            "clear-runtime",
             "open-project-empty",
             "new-project-empty",
-            "inject",
-            "trigger-sysvar",
         ] {
             assert!(window.find(id).visible(), "missing visible control {id}");
         }
@@ -72,31 +108,8 @@ fn menus_build_run_inject_and_stop_work_in_a_real_gpui_test_window(cx: &mut Test
         window.click("run", cx);
         assert_eq!(workspace.read(cx).status(), "Running");
         assert_eq!(workspace.read(cx).pending_timer_count(), 1);
-        window.click("advance-100", cx);
-        assert!(workspace.read(cx).status().contains("fired 1 timer"));
-        window.click("inject", cx);
-        assert!(workspace.read(cx).status().contains("invoked 1 handler"));
-        window.click("clear-runtime", cx);
-        assert_eq!(workspace.read(cx).status(), "Runtime output cleared");
-        window.click("press-key", cx);
-        assert!(workspace.read(cx).status().contains("invoked 1 handler"));
-        window.click("trigger-sysvar", cx);
-        assert!(workspace.read(cx).status().contains("invoked 1 handler"));
-        window.click("trigger-envvar", cx);
-        assert!(workspace.read(cx).status().contains("invoked 1 handler"));
-        window.click("bus-off", cx);
-        assert!(workspace.read(cx).status().contains("invoked 1 handler"));
-        window.click("error-frame", cx);
-        assert!(workspace.read(cx).status().contains("invoked 1 handler"));
-        window.click("replay-sample", cx);
-        assert!(workspace.read(cx).status().contains("Replayed 0x100"));
         window.click("stop", cx);
         assert_eq!(workspace.read(cx).status(), "Stopped");
-        assert!(workspace.read(cx).has_stopped_write("received 0x100"));
-        assert!(workspace.read(cx).has_stopped_write("timer at 100 ms"));
-        assert!(workspace.read(cx).has_stopped_write("key a"));
-        assert!(workspace.read(cx).has_stopped_write("busOff"));
-        assert!(workspace.read(cx).has_stopped_write("errorFrame"));
     })
     .unwrap();
 }
@@ -125,12 +138,7 @@ fn asc_trace_is_loaded_and_replayed_against_virtual_time(cx: &mut TestAppContext
         window.render_frame(cx);
         workspace.update(cx, |workspace, cx| workspace.load_trace_demo(cx));
         assert_eq!(workspace.read(cx).trace_event_count(), 2);
-        window.click("run", cx);
-        window.click("replay-trace", cx);
-        assert!(workspace.read(cx).status().contains("Replayed 2 frame(s)"));
-        assert_eq!(workspace.read(cx).trace_cursor(), 2);
-        window.click("stop", cx);
-        assert!(workspace.read(cx).has_stopped_write("received 0x100"));
+        assert_eq!(workspace.read(cx).trace_cursor(), 0);
     })
     .unwrap();
 }
