@@ -5,8 +5,10 @@ use std::{
 };
 
 pub const PROJECT_EXTENSION: &str = "caplproj";
+pub const PROJECT_FORMAT_VERSION: u32 = 1;
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct ProjectManifest {
     pub format_version: u32,
     pub name: String,
@@ -19,7 +21,7 @@ pub struct ProjectManifest {
 impl ProjectManifest {
     pub fn new(name: impl Into<String>) -> Self {
         Self {
-            format_version: 1,
+            format_version: PROJECT_FORMAT_VERSION,
             name: name.into(),
             ..Default::default()
         }
@@ -59,10 +61,22 @@ pub trait ProjectStore {
 }
 
 pub fn encode(manifest: &ProjectManifest) -> Result<Vec<u8>, ProjectError> {
+    validate_version(manifest.format_version)?;
     Ok(serde_json::to_vec_pretty(manifest)?)
 }
 pub fn decode(bytes: &[u8]) -> Result<ProjectManifest, ProjectError> {
-    Ok(serde_json::from_slice(bytes)?)
+    let manifest: ProjectManifest = serde_json::from_slice(bytes)?;
+    validate_version(manifest.format_version)?;
+    Ok(manifest)
+}
+
+fn validate_version(version: u32) -> Result<(), ProjectError> {
+    if version != PROJECT_FORMAT_VERSION {
+        return Err(ProjectError::Unsupported(format!(
+            "unsupported project format version {version}; expected {PROJECT_FORMAT_VERSION}"
+        )));
+    }
+    Ok(())
 }
 
 pub struct FsProjectStore {
@@ -73,7 +87,17 @@ impl FsProjectStore {
         Self { root: root.into() }
     }
     fn path(&self, key: &str) -> Result<PathBuf, ProjectError> {
-        let path = self.root.join(key);
+        let key_path = Path::new(key);
+        if key_path.is_absolute()
+            || key_path
+                .components()
+                .any(|component| matches!(component, std::path::Component::ParentDir))
+        {
+            return Err(ProjectError::Unsupported(
+                "project key must stay below the project store root".into(),
+            ));
+        }
+        let path = self.root.join(key_path);
         if path.extension().and_then(|e| e.to_str()) != Some(PROJECT_EXTENSION) {
             return Err(ProjectError::Unsupported(format!(
                 "project file must use .{PROJECT_EXTENSION}"
@@ -176,5 +200,29 @@ mod tests {
         let loaded = decode(&store.load("demo.caplproj").unwrap().unwrap()).unwrap();
         assert_eq!(loaded.name, "Replay demo");
         assert!(is_project_path(Path::new("demo.caplproj")));
+    }
+
+    #[test]
+    fn rejects_unknown_project_format_versions() {
+        let error = decode(
+            br#"{"format_version":99,"name":"future","source_files":[],"traces":[],"databases":[],"active_source":null}"#,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("format version 99"));
+
+        let mut manifest = ProjectManifest::new("invalid");
+        manifest.format_version = 0;
+        assert!(encode(&manifest).is_err());
+
+        let partial = decode(br#"{"format_version":1,"name":"partial"}"#).unwrap();
+        assert_eq!(partial.name, "partial");
+        assert!(partial.source_files.is_empty());
+    }
+
+    #[test]
+    fn filesystem_store_rejects_paths_outside_root() {
+        let mut store = FsProjectStore::new(std::env::temp_dir().join("capl-project-test"));
+        assert!(store.save("../escape.caplproj", b"{}").is_err());
+        assert!(store.save("C:\\escape.caplproj", b"{}").is_err());
     }
 }

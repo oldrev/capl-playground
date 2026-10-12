@@ -7,15 +7,21 @@ description = "Native GPUI Kit workspace for CAPL Playground"
 
 [dependencies]
 capl-database-core.workspace = true
+capl-diag.workspace = true
 capl-database-dbc = { path = "../capl-database-dbc" }
 capl-ast.workspace = true
 capl-driver.workspace = true
 capl-project.workspace = true
 capl-runtime.workspace = true
+capl-sema.workspace = true
+capl-sysvars.workspace = true
 capl-model.workspace = true
 capl-trace-asc = { path = "../capl-trace-asc" }
 capl-trace-core.workspace = true
 gpui-kit = "0.7.1"
 gpui-base = "0.7.1"
 rfd = "0.15"
+
+[dev-dependencies]
+gpui-kit = { version = "0.7.1", features = ["test-support"] }
 

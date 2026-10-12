@@ -42,5 +42,21 @@ pub fn seconds_to_us(seconds: f64) -> Result<u64, TraceError> {
             "timestamp must be a finite non-negative number",
         ));
     }
-    Ok((seconds * 1_000_000.0).round() as u64)
+    let micros = seconds * 1_000_000.0;
+    if !micros.is_finite() || micros >= u64::MAX as f64 {
+        return Err(TraceError::new(0, "timestamp exceeds microsecond range"));
+    }
+    Ok(micros.round() as u64)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rejects_timestamps_outside_the_microsecond_range() {
+        assert!(seconds_to_us(f64::MAX).is_err());
+        assert!(seconds_to_us(f64::INFINITY).is_err());
+        assert_eq!(seconds_to_us(1.25).unwrap(), 1_250_000);
+    }
 }

@@ -10,6 +10,7 @@ capl-ast.workspace = true
 capl-driver.workspace = true
 capl-model.workspace = true
 capl-runtime.workspace = true
+capl-sema.workspace = true
 capl-trace-asc = { path = "../capl-trace-asc" }
 capl-trace-core.workspace = true
 

@@ -1,6 +1,6 @@
 use capl_ast::{Decl, EventSpec};
 use capl_driver::{compile, BackendId, Options};
-use capl_runtime::{ReplayHandler, WasmReplay};
+use capl_runtime::{ReplayHandler, ReplayTimer, WasmReplay};
 use capl_trace_asc::AscReader;
 use capl_trace_core::TraceReader;
 use std::{env, fs, process::ExitCode};
@@ -57,6 +57,10 @@ fn main() -> ExitCode {
                     channel: channel.map(u16::from),
                     wildcard: *wildcard,
                     sysvar: None,
+                    timer: None,
+                    key: None,
+                    envvar: None,
+                    special: None,
                 }),
                 EventSpec::SysVar { name } => Some(ReplayHandler {
                     export_name: handler.export_name.clone(),
@@ -64,6 +68,21 @@ fn main() -> ExitCode {
                     channel: None,
                     wildcard: false,
                     sysvar: Some(name.clone()),
+                    timer: None,
+                    key: None,
+                    envvar: None,
+                    special: None,
+                }),
+                EventSpec::Timer { name } => Some(ReplayHandler {
+                    export_name: handler.export_name.clone(),
+                    id: None,
+                    channel: None,
+                    wildcard: false,
+                    sysvar: None,
+                    timer: Some(name.clone()),
+                    key: None,
+                    envvar: None,
+                    special: None,
                 }),
                 _ => None,
             },
@@ -78,7 +97,28 @@ fn main() -> ExitCode {
         }
     };
     let artifact = out.wasm.expect("wasm backend requested");
-    let mut runtime = match WasmReplay::new(&artifact.bytes, artifact.msgbuf_addr, handlers) {
+    let timers = out
+        .sema
+        .as_ref()
+        .map(|sema| {
+            sema.timers
+                .iter()
+                .filter_map(|id| sema.var(*id))
+                .filter_map(|var| {
+                    var.timer_id.map(|id| ReplayTimer {
+                        id,
+                        name: var.name.clone(),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let mut runtime = match WasmReplay::new_with_timers(
+        &artifact.bytes,
+        artifact.msgbuf_addr,
+        handlers,
+        timers,
+    ) {
         Ok(v) => v,
         Err(e) => {
             eprintln!("runtime: {e}");
@@ -87,9 +127,23 @@ fn main() -> ExitCode {
     };
     let mut frames = 0;
     let mut invoked = 0;
+    let mut timer_handlers = 0;
+    if let Err(error) = runtime.start_measurement() {
+        eprintln!("start measurement: {error}");
+        return ExitCode::from(1);
+    }
     for event in events {
         if let capl_trace_core::TraceEvent::Frame(frame) = event {
             frames += 1;
+            if frame.timestamp_us > runtime.now_us() {
+                match runtime.advance_time(frame.timestamp_us - runtime.now_us()) {
+                    Ok(count) => timer_handlers += count,
+                    Err(error) => {
+                        eprintln!("timer before {}us: {error}", frame.timestamp_us);
+                        return ExitCode::from(1);
+                    }
+                }
+            }
             match runtime.run_frame(&frame) {
                 Ok(n) => invoked += n,
                 Err(e) => {
@@ -100,7 +154,7 @@ fn main() -> ExitCode {
         }
     }
     println!(
-        "replayed {frames} frame(s), invoked {invoked} message handler(s), emitted {} frame(s)",
+        "replayed {frames} frame(s), invoked {invoked} message handler(s) and {timer_handlers} timer handler(s), emitted {} frame(s)",
         runtime.output().frames.len()
     );
     ExitCode::SUCCESS

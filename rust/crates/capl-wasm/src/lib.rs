@@ -116,15 +116,7 @@ pub fn compile(src: &str, backends: &str) -> Result<JsValue, JsValue> {
     #[cfg(feature = "panic-hook")]
     console_error_panic_hook::set_once();
 
-    let backends: Vec<BackendId> = backends
-        .split(',')
-        .filter_map(|b| match b.trim() {
-            "wasm" => Some(BackendId::Wasm),
-            "c" => Some(BackendId::C),
-            "ast" => Some(BackendId::Ast),
-            _ => None,
-        })
-        .collect();
+    let backends = parse_backends(backends).map_err(|error| JsValue::from_str(&error))?;
 
     let lex_start = js_sys::Date::now();
     let mut lex_diags = capl_diag::DiagBag::new();
@@ -252,6 +244,30 @@ pub fn compile(src: &str, backends: &str) -> Result<JsValue, JsValue> {
     serde_wasm_bindgen::to_value(&result).map_err(|e| JsValue::from_str(&e.to_string()))
 }
 
+fn parse_backends(input: &str) -> Result<Vec<BackendId>, String> {
+    if input.trim().is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut backends = Vec::new();
+    for raw in input.split(',') {
+        let backend = match raw.trim() {
+            "wasm" => BackendId::Wasm,
+            "c" => BackendId::C,
+            "ast" => BackendId::Ast,
+            "" => return Err("backend list contains an empty entry".into()),
+            other => {
+                return Err(format!(
+                    "unknown backend {other:?}; expected wasm, c, or ast"
+                ))
+            }
+        };
+        if !backends.contains(&backend) {
+            backends.push(backend);
+        }
+    }
+    Ok(backends)
+}
+
 fn count_nodes(v: &serde_json::Value) -> usize {
     match v {
         serde_json::Value::Array(a) => a.iter().map(count_nodes).sum(),
@@ -259,6 +275,22 @@ fn count_nodes(v: &serde_json::Value) -> usize {
             usize::from(o.contains_key("kind")) + o.values().map(count_nodes).sum::<usize>()
         }
         _ => 0,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_backend_list_and_rejects_typos() {
+        assert_eq!(
+            parse_backends("wasm, c, wasm").unwrap(),
+            [BackendId::Wasm, BackendId::C]
+        );
+        assert!(parse_backends("wasm,wat").unwrap_err().contains("wat"));
+        assert!(parse_backends("wasm,,c").is_err());
+        assert!(parse_backends("").unwrap().is_empty());
     }
 }
 
